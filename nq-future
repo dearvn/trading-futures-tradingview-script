@@ -1,5 +1,5 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © thinhdangho
+// ©  binancash
 
 //@version=5
 indicator("Snag - NQ Auto Trade Futures", overlay=true, max_labels_count=500)
