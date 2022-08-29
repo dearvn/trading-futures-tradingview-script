@@ -7,7 +7,7 @@ indicator("Snag - NQ Auto Trade Futures", overlay=true, max_labels_count=500)
 pctHigh = input.float(title='Highest %', defval=10.0)
 pctLow = input.float(title='Lowest %', defval=-8.0)
 
-f_RoundUp(number, decimals) =>
+f_RoundUp(number, decimals=0) =>
     factor = math.pow(10, decimals)
     math.ceil(number * factor) / factor
     
@@ -60,6 +60,60 @@ else if crossDownWMA48_200
     price_wmacrossup_arr := array.new_float()
     array.push(price_wmacrossdown_arr, close)
         
+        
+var int crossdown_bar_13_48 = 0
+var int crossdown_bar_48_200 = 0
+var int crossup_bar_13_48 = 0
+var int crossup_bar_48_200 = 0
+
+if crossDownWMA13_48
+    crossdown_bar_13_48 := bar_index
+    crossup_bar_13_48 := 0
+if crossUpWMA13_48
+    crossup_bar_13_48 := bar_index
+    crossdown_bar_13_48 := 0
+    
+if crossDownWMA48_200
+    crossdown_bar_48_200 := bar_index
+    crossup_bar_48_200 := 0
+if crossUpWMA48_200
+    crossdown_bar_48_200 := 0
+    crossup_bar_48_200 := bar_index
+    
+   
+var bool is_big_put = false
+var bool is_big_call = false
+if crossdown_bar_48_200 and crossdown_bar_13_48 
+    if crossdown_bar_13_48 < crossdown_bar_48_200
+        label.new(crossdown_bar_48_200, wma48, text=str.format("{0}", 'BIG PUT'), textcolor=color.white, color=color.red, size=size.normal, style=label.style_triangledown)
+        label.new(crossdown_bar_48_200, wma13, text=str.format("{0}", 'BIG PUT'), textcolor=color.white, color=color.red, size=size.normal, style=label.style_triangledown)
+        crossdown_bar_13_48 := 0
+        crossdown_bar_48_200 := 0
+        is_big_put := true
+        is_big_call := false
+    else
+        label.new(crossdown_bar_13_48, wma48, text=str.format("{0}", 'BIG PUT'), textcolor=color.white, color=color.red, size=size.normal, style=label.style_triangledown)
+        label.new(crossdown_bar_13_48, wma13, text=str.format("{0}", 'BIG PUT'), textcolor=color.white, color=color.red, size=size.normal, style=label.style_triangledown)
+        crossdown_bar_13_48 := 0
+        crossdown_bar_48_200 := 0
+        is_big_put := true
+        is_big_call := false
+if crossup_bar_48_200 and crossup_bar_13_48 
+    if crossup_bar_13_48 < crossup_bar_48_200
+        label.new(crossup_bar_48_200, wma48, text=str.format("{0}", 'BIG CALL'), textcolor=color.white, color=color.green, size=size.normal, style=label.style_triangleup)
+        label.new(crossup_bar_48_200, wma13, text=str.format("{0}", 'BIG CALL'), textcolor=color.white, color=color.green, size=size.normal, style=label.style_triangleup)
+        crossup_bar_13_48 := 0
+        crossup_bar_48_200 := 0
+        is_big_put := false
+        is_big_call := true
+    else
+        label.new(crossup_bar_13_48, wma48, text=str.format("{0}", 'BIG CALL'), textcolor=color.white, color=color.green, size=size.normal, style=label.style_triangleup)
+        label.new(crossup_bar_13_48, wma13, text=str.format("{0}", 'BIG CALL'), textcolor=color.white, color=color.green, size=size.normal, style=label.style_triangleup)
+        crossup_bar_13_48 := 0
+        crossup_bar_48_200 := 0
+        is_big_put := false
+        is_big_call := true
+                
 //price_up = 0.0
 //price_down = 0.0
 //if array.size(price_wmacrossup_arr) > 0
@@ -439,31 +493,210 @@ var bool signal_out = false
 var in_arr = array.new_int()
 var out_arr = array.new_int()
 
+
+m = minute(timenow, "GMT-7")
+s = second(timenow, "GMT-7")
+
+last_second = int(m)%5 == 4 and int(s) >= 50 ? true : false
+var float price_in = 0.0
+var int time_in = 0
+var float price_out = 0.0
+var int time_out = 0
+var float stoploss_in = 0.0
+var float stoploss_out = 0.0
+
+var gain_in_arr = array.new_string()
+var float max_gain_in = 0.0
+var int max_time_in = 0
+var float max_price_in = 0.0
+var gain_out_arr = array.new_string()
+var float max_gain_out = 0.0
+var int max_time_out = 0
+var float max_price_out = 0.0
+
+if hour(time, "GMT-7") == 0 and minute(time, "GMT-7") == 0 or hour(time, "GMT-7") == 6 and minute(time, "GMT-7") == 29
+    gain_in_arr := array.new_string()
+    gain_out_arr := array.new_string()
+
+
 if point - point1 > 15 or point - point2 > 15
     is_in := true
     signal_in := true
     out_arr := array.new_int()
-    if array.size(in_arr) > 0
-        label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0}", '--->'), textcolor=color.green, color=color.new(color.black, 40), size=size.normal, style=label.style_none)
-    else
-        txt_clr = color.green
-        if timenow%2==0
-            txt_clr := color.yellow
-        label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0}", 'IN'), textcolor=txt_clr, color=color.new(color.black, 40), size=size.normal, style=label.style_none)
+    if max_gain_out != 0.0
+        h1 = hour(time_out, "GMT-7")
+        str_h1 = str.format("{0}",h1)
+        if str.length(str_h1) == 1
+            str_h1 := str.format("0{0}", h1)
+        m1 = minute(time_out, "GMT-7")
+        str_m1 = str.format("{0}",m1)
+        if str.length(str_m1) == 1
+            str_m1 := str.format("0{0}", m1)
+        h2 = hour(max_time_out, "GMT-7")
+        str_h2 = str.format("{0}",h2)
+        if str.length(str_h2) == 1
+            str_h2 := str.format("0{0}", h2)
+        m2 = minute(max_time_out, "GMT-7")
+        str_m2 = str.format("{0}",m2)
+        if str.length(str_m2) == 1
+            str_m2 := str.format("0{0}", m2)
+            
+        str_out = str.format("{0}:{1} ${2}", str_h1, str_m1, price_out)
+        str_max_out = str.format("{0}:{1} ${2}",str_h2, str_m2, max_price_out)
+        str_gain_out = str.format("{0}", max_gain_out)
+        array.push(gain_out_arr, str.format("PUT: {0}\nEX: {1}\nGain: {2} points", str_out, str_max_out, str_gain_out))
+        max_gain_out := 0.0    
+    max_gain_out := 0.0
+    max_time_out := 0
+    max_price_out := 0.0
+    time_out := 0
+    price_out := 0.0
+    stoploss_out := 0.0
+    if price_in == 0.0
+        price_in := close
+        time_in := time
+            
     array.push(in_arr, time)
     
 else if point1 - point > 12 or point2 - point > 12
     is_out := true
     signal_out := true
     in_arr := array.new_int()
-    if array.size(out_arr) > 0
+    if max_gain_in != 0.0
+        h3 = hour(time_in, "GMT-7")
+        str_h3 = str.format("{0}",h3)
+        if str.length(str_h3) == 1
+            str_h3 := str.format("0{0}", h3)
+        m3 = minute(time_in, "GMT-7")
+        str_m3 = str.format("{0}",m3)
+        if str.length(str_m3) == 1
+            str_m3 := str.format("0{0}", m3)
+        h4 = hour(max_time_in, "GMT-7")
+        str_h4 = str.format("{0}",h4)
+        if str.length(str_h4) == 1
+            str_h4 := str.format("0{0}", h4)
+        m4 = minute(max_time_in, "GMT-7")
+        str_m4 = str.format("{0}",m4)
+        if str.length(str_m4) == 1
+            str_m4 := str.format("0{0}", m4)
+            
+        str_in2 = str.format("{0}:{1} ${2}", str_h3, str_m3, price_in)
+        str_max_in2 = str.format("{0}:{1} ${2}",str_h4, str_m4, max_price_in)
+        str_gain_in2 = str.format("{0}", max_gain_in)
+        array.push(gain_in_arr, str.format("CALL: {0}\nEX: {1}\nGain: {2} points", str_in2, str_max_in2, str_gain_in2))
+        max_gain_in := 0.0
+        
+    max_gain_in := 0.0
+    max_time_in := 0
+    max_price_in := 0.0
+    time_in := 0
+    price_in := 0.0
+    stoploss_in := 0.0
+    if price_out == 0.0
+        price_out := close
+        time_out := time
+        //stoploss_out := close + 10
+    
+    array.push(out_arr, time)
+    
+// trailing stop    
+if price_in > 0.0
+    if max_gain_in < close - price_in
+        max_price_in := close
+        max_gain_in := close - price_in
+        max_time_in := time
+    if close >= price_in
+        stoploss_in := close - 10
+        
+if price_out > 0.0
+    if max_gain_out < price_out - close
+        max_price_out := close
+        max_gain_out := price_out - close
+        max_time_in := time
+    if close <= price_out
+        stoploss_out := close + 10
+        
+if stoploss_in != 0.0 and close <= stoploss_in
+    if max_gain_in != 0.0
+        h5 = hour(time_in, "GMT-7")
+        str_h5 = str.format("{0}",h5)
+        if str.length(str_h5) == 1
+            str_h5 := str.format("0{0}", h5)
+        m5 = minute(time_in, "GMT-7")
+        str_m5 = str.format("{0}",m5)
+        if str.length(str_m5) == 1
+            str_m5 := str.format("0{0}", m5)
+        h6 = hour(max_time_in, "GMT-7")
+        str_h6 = str.format("{0}",h6)
+        if str.length(str_h6) == 1
+            str_h6 := str.format("0{0}", h6)
+        m6 = minute(max_time_in, "GMT-7")
+        str_m6 = str.format("{0}",m6)
+        if str.length(str_m6) == 1
+            str_m6 := str.format("0{0}", m6)
+            
+        str_in3 = str.format("{0}:{1} ${2}", str_h5, str_m5, price_in)
+        str_max_in3 = str.format("{0}:{1} ${2}",str_h6, str_m6, max_price_in)
+        str_gain_in3 = str.format("{0}", max_gain_in)
+        array.push(gain_in_arr, str.format("CALL: {0}\nST: {1}\nGain: {2} points", str_in3, str_max_in3, str_gain_in3))
+        
+        max_gain_in := 0.0
+        max_time_in := 0
+        max_price_in := 0.0
+        time_in := 0
+        price_in := 0.0
+        stoploss_in := 0.0
+if stoploss_out != 0.0 and close > stoploss_out
+    if max_gain_out != 0.0
+        h7 = hour(time_out, "GMT-7")
+        str_h7 = str.format("{0}",h7)
+        if str.length(str_h7) == 1
+            str_h7 := str.format("0{0}", h7)
+        m7 = minute(time_out, "GMT-7")
+        str_m7 = str.format("{0}",m7)
+        if str.length(str_m7) == 1
+            str_m7 := str.format("0{0}", m7)
+        h8 = hour(max_time_out, "GMT-7")
+        str_h8 = str.format("{0}",h8)
+        if str.length(str_h8) == 1
+            str_h8 := str.format("0{0}", h8)
+        m8 = minute(max_time_out, "GMT-7")
+        str_m8 = str.format("{0}",m8)
+        if str.length(str_m8) == 1
+            str_m8 := str.format("0{0}", m8)
+            
+        str_out4 = str.format("{0}:{1} ${2}", str_h7, str_m7, price_out)
+        str_max_out4 = str.format("{0}:{1} ${2}",str_h8, str_m8, max_price_out)
+        str_gain_out4 = str.format("{0}", max_gain_out)
+        array.push(gain_out_arr, str.format("PUT: {0}\nST: {1}\nGain: {2} points", str_out4, str_max_out4, str_gain_out4))
+        
+        max_gain_out := 0.0
+        max_time_out := 0
+        max_price_out := 0.0
+        time_out := 0
+        price_out := 0.0
+        stoploss_out := 0.0
+        
+if array.size(in_arr) > 0
+    if array.size(in_arr) > 1
+        //label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0} {1} {2} {3}", 'I--->', array.size(in_arr), price_in, close), textcolor=color.green, color=color.new(color.black, 40), size=size.normal, style=label.style_none)
+        label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0}", '--->'), textcolor=color.green, color=color.new(color.black, 40), size=size.normal, style=label.style_none)
+    else
+        txt_clr = color.green
+        if timenow%2==0
+            txt_clr := color.yellow
+        //label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0} {1}", 'IN' ,array.size(in_arr), price_in, close), textcolor=txt_clr, color=color.new(color.black, 40), size=size.normal, style=label.style_none)
+        label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0}", 'IN'), textcolor=txt_clr, color=color.new(color.black, 40), size=size.normal, style=label.style_none)
+if array.size(out_arr) > 0
+    if array.size(out_arr) > 1
+        //label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0} {1} {2} {3}", 'O--->', array.size(out_arr), price_out, close), textcolor=color.red, color=color.new(color.black, 20), size=size.normal, style=label.style_none)
         label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0}", '--->'), textcolor=color.red, color=color.new(color.black, 20), size=size.normal, style=label.style_none)
     else
         txt_clr = color.green
         if timenow%2==0
             txt_clr := color.orange
+        //label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0} {1}", 'OUT', array.size(out_arr)), textcolor=txt_clr, color=color.new(color.black, 20), size=size.normal, style=label.style_none)
         label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0}", 'OUT'), textcolor=txt_clr, color=color.new(color.black, 20), size=size.normal, style=label.style_none)
-    array.push(out_arr, time)
     
 EMA_CHANGE_CALL = point - point1 >= 15 
 EMA_CHANGE_PUT = point - point1 <= -12
@@ -614,10 +847,6 @@ if logic_put != 'N/A' and put_price != 0.0 and close >= put_price + 10
     label.new(bar_index, low-0.002*low, text=str.format("{0}", logic_exit_put), textcolor=color.red, color=color.new(color.black, 40), size=size.normal, style=label.style_label_up)
     is_stop_loss_put := true
 
-
-m = minute(timenow, "GMT-8")
-s = second(timenow, "GMT-8")
-
 is_in_ok = false
 is_out_ok = false
 if m == 4 or m == 9 or m == 14 or m == 19 or m == 24 or m == 29 or m == 34 or m == 39 or m == 44 or m == 49 or m == 54 or m == 59
@@ -717,7 +946,7 @@ f_supertrendinout(Factor, Pd) =>
 st_tsl = f_supertrendinout(1, 1)
 
 linecolor = close >= st_tsl ? color.green : color.red
-plot(st_tsl, color = linecolor , linewidth = 2,title = "In - Out")
+plot(st_tsl, color = linecolor , linewidth = 4,title = "In - Out")
 ////////////////////////////////////////
 
 
@@ -731,7 +960,7 @@ if barstate.islast
     point_day = high_1day - low_1day
     
     table.cell(panel, 0, 1, "Day Low", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 1, str.format("${0}", low_1day), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
+    table.cell(panel, 1, 1, str.format("${0} {1} {2} {3}", low_1day, m, s, last_second), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
     
     table.cell(panel, 0, 2, "Day High", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
     table.cell(panel, 1, 2, str.format("${0}", high_1day), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
@@ -746,7 +975,7 @@ if barstate.islast
     table.cell(panel, 0, 5, "TREND", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
     table.cell(panel, 1, 5, txtMarkTrend, bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
     table.cell(panel, 0, 6, "MACD TREND", bgcolor = macd_color, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 6, macd_status, bgcolor = macd_color, text_color=color.black, text_halign=text.align_left)    
+    table.cell(panel, 1, 6, str.format("{0} - {1}", macd_status, is_big_call?'BIG CALL' : 'BIG PUT'), bgcolor = macd_color, text_color=color.black, text_halign=text.align_left)    
     
     
     if low < wma200
@@ -789,15 +1018,53 @@ if barstate.islast
     table.cell(panel, 0, 14, "Point - Point1", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
     table.cell(panel, 1, 14, str.format("{0}", point - point1), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
     
+    if price_in > 0.0
+        table.cell(panel, 0, 15, "CALL", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 15, str.format("${0}", price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 16, "Trailing Stoploss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 16, str.format("${0}", stoploss_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 17, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 17, str.format("{0} points", close-price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+    
+    if price_out > 0.0
+        table.cell(panel, 0, 20, "PUT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 20, str.format("${0}", price_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 21, "Trailing Stoploss Out", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 21, str.format("${0}", stoploss_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 22, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 22, str.format("{0} points", price_out-close), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+    
+    table.cell(panel, 0, 23, '', height=60, text_halign=text.align_left)
+    table.cell(panel, 1, 23, '', height=60, text_halign=text.align_left)    
+    
+    ////////////////////////////////////////////////////////////////////////////////
+    // show gainloss
 
-    table.cell(panel, 0, 15, "Logic CALL", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 15, str.format("{0}", logic_call), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+    var table panel_in = table.new("bottom_left", array.size(gain_in_arr)+2, 30)
+    table.cell(panel_in, 0, 1, 'IN', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
+    table.cell(panel_in, 0, 2, 'OUT', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
+            
+    if array.size(gain_in_arr) > 0
+        for k = 0 to array.size(gain_in_arr) - 1
+
+            if k%2 == 0
+                table.cell(panel_in, k+1, 1, array.get(gain_in_arr, k), bgcolor = color.gray, text_color=color.black, width=16, text_halign=text.align_left)
+            else
+                table.cell(panel_in, k+1, 1, array.get(gain_in_arr, k), bgcolor = color.green, text_color=color.black, width=16, text_halign=text.align_left)
+    if array.size(gain_out_arr) > 0
+        for j = 0 to array.size(gain_out_arr) - 1
+            if j%2 == 0
+                table.cell(panel_in, j+1, 2, array.get(gain_out_arr, j), bgcolor = color.red, text_color=color.black, width=16, text_halign=text.align_left)
+            else
+                table.cell(panel_in, j+1, 2, array.get(gain_out_arr, j), bgcolor = color.gray, text_color=color.black, width=16, text_halign=text.align_left)
+            
     
-    table.cell(panel, 0, 16, "Logic PUT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 16, str.format("{0}", logic_put), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
     
-    
-    
+    ////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////
 // CALL PUT START
@@ -823,6 +1090,8 @@ var time_stoplossput_arr = array.new_int()
 var time_in_arr = array.new_int()
 var time_out_arr = array.new_int()
 
+var time_big_call_arr = array.new_int()
+var time_big_put_arr = array.new_int()
 if is_in == true
     time_out_arr := array.new_int()
     if array.size(time_in_arr) == 0
@@ -832,6 +1101,16 @@ if is_out == true
     time_in_arr := array.new_int()
     if array.size(time_out_arr) == 0
         array.push(time_out_arr, time)
+        
+if is_big_call == true
+    time_big_put_arr := array.new_int()
+    if array.size(time_big_call_arr) == 0
+        array.push(time_big_call_arr, time)
+        
+if is_big_put == true
+    time_big_call_arr := array.new_int()
+    if array.size(time_big_put_arr) == 0
+        array.push(time_big_put_arr, time)
         
 if is_call_logic1 == true
     time_exitcall_arr := array.new_int()
@@ -905,6 +1184,9 @@ is_alert_put5 = false
 is_alert_in = false
 is_alert_out = false
 
+is_alert_big_call = false
+is_alert_big_put = false
+
 if array.size(time_in_arr) > 0
     if time == array.get(time_in_arr, array.size(time_in_arr)-1)
         is_alert_in := true
@@ -912,6 +1194,14 @@ if array.size(time_in_arr) > 0
 if array.size(time_out_arr) > 0
     if time == array.get(time_out_arr, array.size(time_out_arr)-1)
         is_alert_out := true
+        
+if array.size(time_big_call_arr) > 0
+    if time == array.get(time_big_call_arr, array.size(time_big_call_arr)-1)
+        is_alert_big_call := true
+
+if array.size(time_big_put_arr) > 0
+    if time == array.get(time_big_put_arr, array.size(time_big_put_arr)-1)
+        is_alert_big_put := true
         
 if array.size(time_call1_arr) > 0
     if time == array.get(time_call1_arr, array.size(time_call1_arr)-1)
@@ -952,6 +1242,9 @@ if array.size(time_put5_arr) > 0
 
 alertcondition(is_alert_in, title='Logic In', message='Logic In')
 alertcondition(is_alert_out, title='Logic Out', message='Logic Out')
+
+alertcondition(is_alert_big_call, title='BIG CALL', message='Logic In')
+alertcondition(is_alert_big_put, title='BIG PUT', message='Logic Out')
 
 alertcondition(is_alert_call1, title='Logic1 CALL', message='Logic1 CALL')
 alertcondition(is_alert_call2, title='Logic2 CALL', message='Logic2 CALL')
