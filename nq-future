@@ -1,5 +1,5 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © binancash
+// © thinhdangho
 
 //@version=5
 indicator("Snag - NQ Auto Trade Futures", overlay=true, max_labels_count=500)
@@ -1047,18 +1047,18 @@ if barstate.islast
             table.cell(panel, 1, 17, str.format("{0} points", close-price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
     
     if price_out > 0.0
-        table.cell(panel, 0, 20, "PUT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 20, str.format("${0}", price_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        table.cell(panel, 0, 15, "PUT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 15, str.format("${0}", price_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
         
-        table.cell(panel, 0, 21, "Trailing Stoploss Out", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 21, str.format("${0}", stoploss_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        table.cell(panel, 0, 16, "Trailing Stoploss Out", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 16, str.format("${0}", stoploss_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
         
         if put_gain != 0.0
-            table.cell(panel, 0, 22, "STOPLOSS", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-            table.cell(panel, 1, 22, str.format("{0} points", put_gain), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+            table.cell(panel, 0, 17, "STOPLOSS", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 17, str.format("{0} points", put_gain), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
         else
-            table.cell(panel, 0, 22, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-            table.cell(panel, 1, 22, str.format("{0} points", price_out - close), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+            table.cell(panel, 0, 17, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 17, str.format("{0} points", price_out - close), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
     
     table.cell(panel, 0, 23, '', height=20, text_halign=text.align_left)
     table.cell(panel, 1, 23, '', height=20, text_halign=text.align_left)    
