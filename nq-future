@@ -514,7 +514,10 @@ var float max_gain_out = 0.0
 var int max_time_out = 0
 var float max_price_out = 0.0
 
-if hour(time, "GMT-7") == 0 and minute(time, "GMT-7") == 0 or hour(time, "GMT-7") == 6 and minute(time, "GMT-7") == 29
+var float call_gain = 0.0
+var float put_gain = 0.0
+
+if hour(time, "GMT-7") == 0 and minute(time, "GMT-7") == 0 or hour(time, "GMT-7") == 6 and minute(time, "GMT-7") == 30
     gain_in_arr := array.new_string()
     gain_out_arr := array.new_string()
 
@@ -524,6 +527,7 @@ if point - point1 > 15 or point - point2 > 15
     signal_in := true
     out_arr := array.new_int()
     if max_gain_out != 0.0
+        put_gain := price_out - close
         h1 = hour(time_out, "GMT-7")
         str_h1 = str.format("{0}",h1)
         if str.length(str_h1) == 1
@@ -546,6 +550,9 @@ if point - point1 > 15 or point - point2 > 15
         str_gain_out = str.format("{0}", max_gain_out)
         array.push(gain_out_arr, str.format("PUT: {0}\nEX: {1}\nGain: {2} points", str_out, str_max_out, str_gain_out))
         max_gain_out := 0.0    
+        out_arr := array.new_int()
+    
+    call_gain := 0.0
     max_gain_out := 0.0
     max_time_out := 0
     max_price_out := 0.0
@@ -563,6 +570,7 @@ else if point1 - point > 12 or point2 - point > 12
     signal_out := true
     in_arr := array.new_int()
     if max_gain_in != 0.0
+        call_gain := close - price_in
         h3 = hour(time_in, "GMT-7")
         str_h3 = str.format("{0}",h3)
         if str.length(str_h3) == 1
@@ -585,7 +593,9 @@ else if point1 - point > 12 or point2 - point > 12
         str_gain_in2 = str.format("{0}", max_gain_in)
         array.push(gain_in_arr, str.format("CALL: {0}\nEX: {1}\nGain: {2} points", str_in2, str_max_in2, str_gain_in2))
         max_gain_in := 0.0
+        in_arr := array.new_int()
         
+    put_gain := 0.0
     max_gain_in := 0.0
     max_time_in := 0
     max_price_in := 0.0
@@ -612,12 +622,13 @@ if price_out > 0.0
     if max_gain_out < price_out - close
         max_price_out := close
         max_gain_out := price_out - close
-        max_time_in := time
+        max_time_out := time
     if close <= price_out
         stoploss_out := close + 10
         
 if stoploss_in != 0.0 and close <= stoploss_in
     if max_gain_in != 0.0
+        call_gain := close - price_in
         h5 = hour(time_in, "GMT-7")
         str_h5 = str.format("{0}",h5)
         if str.length(str_h5) == 1
@@ -646,8 +657,11 @@ if stoploss_in != 0.0 and close <= stoploss_in
         time_in := 0
         price_in := 0.0
         stoploss_in := 0.0
+        
+        in_arr := array.new_int()
 if stoploss_out != 0.0 and close > stoploss_out
     if max_gain_out != 0.0
+        put_gain := price_out - close
         h7 = hour(time_out, "GMT-7")
         str_h7 = str.format("{0}",h7)
         if str.length(str_h7) == 1
@@ -676,7 +690,7 @@ if stoploss_out != 0.0 and close > stoploss_out
         time_out := 0
         price_out := 0.0
         stoploss_out := 0.0
-        
+        out_arr := array.new_int()
 if array.size(in_arr) > 0
     if array.size(in_arr) > 1
         //label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0} {1} {2} {3}", 'I--->', array.size(in_arr), price_in, close), textcolor=color.green, color=color.new(color.black, 40), size=size.normal, style=label.style_none)
@@ -1025,8 +1039,12 @@ if barstate.islast
         table.cell(panel, 0, 16, "Trailing Stoploss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
         table.cell(panel, 1, 16, str.format("${0}", stoploss_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
         
-        table.cell(panel, 0, 17, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 17, str.format("{0} points", close-price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        if call_gain != 0.0
+            table.cell(panel, 0, 17, "STOPLOSS", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 17, str.format("{0} points", call_gain), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        else
+            table.cell(panel, 0, 17, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 17, str.format("{0} points", close-price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
     
     if price_out > 0.0
         table.cell(panel, 0, 20, "PUT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
@@ -1035,18 +1053,24 @@ if barstate.islast
         table.cell(panel, 0, 21, "Trailing Stoploss Out", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
         table.cell(panel, 1, 21, str.format("${0}", stoploss_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
         
-        table.cell(panel, 0, 22, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 22, str.format("{0} points", price_out-close), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        if put_gain != 0.0
+            table.cell(panel, 0, 22, "STOPLOSS", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 22, str.format("{0} points", put_gain), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        else
+            table.cell(panel, 0, 22, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 22, str.format("{0} points", price_out - close), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
     
-    table.cell(panel, 0, 23, '', height=60, text_halign=text.align_left)
-    table.cell(panel, 1, 23, '', height=60, text_halign=text.align_left)    
+    table.cell(panel, 0, 23, '', height=20, text_halign=text.align_left)
+    table.cell(panel, 1, 23, '', height=20, text_halign=text.align_left)    
     
     ////////////////////////////////////////////////////////////////////////////////
     // show gainloss
 
     var table panel_in = table.new("bottom_left", array.size(gain_in_arr)+2, 30)
-    table.cell(panel_in, 0, 1, 'IN', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
-    table.cell(panel_in, 0, 2, 'OUT', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
+    if array.size(gain_in_arr) > 0
+        table.cell(panel_in, 0, 1, 'IN', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
+    if array.size(gain_out_arr) > 0
+        table.cell(panel_in, 0, 2, 'OUT', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
             
     if array.size(gain_in_arr) > 0
         for k = 0 to array.size(gain_in_arr) - 1
