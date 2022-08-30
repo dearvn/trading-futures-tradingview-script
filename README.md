@@ -8,3 +8,8 @@ Absolutely, the point is correct with futures.
 For example, when "IN" signal notify I can CALL on Tradovate platform.
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/nq.png?raw=true "NQ1")
+
+# History Gain/Loss
+2022-08-30 Gain PUT 253 Points
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/nq-2022-08-30_at_22.12.05.png?raw=true "NQ1 2022-08-30 at 22.12.05")
+
