@@ -1,11 +1,19 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// ©  binancash
+// © binancash
 
 //@version=5
 indicator("Snag - NQ Auto Trade Futures", overlay=true, max_labels_count=500)
 
 pctHigh = input.float(title='Highest %', defval=10.0)
 pctLow = input.float(title='Lowest %', defval=-8.0)
+
+input_in = input.float(title='Input In Point', defval=15.0)
+input_out = input.float(title='Input Out Point', defval=12.0)
+
+show_table = input.bool(title='Show Table', defval=true)
+only_show_gain = input.bool(title='Only Show Gain', defval=true)
+show_loss_gain = input.bool(title='Show Gain/Loss', defval=false)
+
 
 f_RoundUp(number, decimals=0) =>
     factor = math.pow(10, decimals)
@@ -305,10 +313,10 @@ src_1day = request.security(symbol=syminfo.tickerid, timeframe="360", expression
 txt_color = color.yellow
 if array.size(point_arr) > 1
     pre_point = array.get(point_arr, array.size(point_arr)-2)
-    if point - pre_point > 15
+    if point - pre_point > input_in
         txt_color := color.green
         
-    else if pre_point - point > 12
+    else if pre_point - point > input_out
         txt_color := color.red
         
         
@@ -517,15 +525,28 @@ var float max_price_out = 0.0
 var float call_gain = 0.0
 var float put_gain = 0.0
 
+var float call_price_exit = 0.0
+var int call_time_exit = 0
+var float put_price_exit = 0.0
+var int put_time_exit = 0
+
+
 if hour(time, "GMT-7") == 0 and minute(time, "GMT-7") == 0 or hour(time, "GMT-7") == 6 and minute(time, "GMT-7") == 30
     gain_in_arr := array.new_string()
     gain_out_arr := array.new_string()
 
 
-if point - point1 > 15 or point - point2 > 15
+if point - point1 > input_in or point - point2 > input_in
     is_in := true
     signal_in := true
     out_arr := array.new_int()
+    
+    if price_out != 0.0
+        call_price_exit := 0.0
+        call_time_exit := 0
+        put_price_exit := close
+        put_time_exit := time
+    
     if max_gain_out != 0.0
         put_gain := price_out - close
         h1 = hour(time_out, "GMT-7")
@@ -545,11 +566,26 @@ if point - point1 > 15 or point - point2 > 15
         if str.length(str_m2) == 1
             str_m2 := str.format("0{0}", m2)
             
+        
+        h21 = hour(put_time_exit, "GMT-7")
+        str_h21 = str.format("{0}",h21)
+        if str.length(str_h21) == 1
+            str_h21 := str.format("0{0}", h21)
+        m21 = minute(put_time_exit, "GMT-7")
+        str_m21 = str.format("{0}",m21)
+        if str.length(str_m21) == 1
+            str_m21 := str.format("0{0}", m21)
+            
         str_out = str.format("{0}:{1} ${2}", str_h1, str_m1, price_out)
-        str_max_out = str.format("{0}:{1} ${2}",str_h2, str_m2, max_price_out)
-        str_gain_out = str.format("{0}", max_gain_out)
-        array.push(gain_out_arr, str.format("PUT: {0}\nEX: {1}\nGain: {2} points", str_out, str_max_out, str_gain_out))
+        str_max_out = str.format("{0}:{1} ${2}\nExp G/L: {3}pts",str_h2, str_m2, max_price_out, max_gain_out)
+        str_gain_loss_out = str.format("{0}:{1} ${2}\nG/L: {3}pts", str_h21, str_m21, put_price_exit, price_out - put_price_exit)
+        array.push(gain_out_arr, str.format("P: {0}\nEX: {1}\nExp: {2}", str_out, str_gain_loss_out, str_max_out))
+        
+        
+        if array.size(gain_out_arr) > 12
+            array.remove(gain_out_arr, 0)
         max_gain_out := 0.0    
+        put_price_exit := 0.0
         out_arr := array.new_int()
     
     call_gain := 0.0
@@ -565,10 +601,16 @@ if point - point1 > 15 or point - point2 > 15
             
     array.push(in_arr, time)
     
-else if point1 - point > 12 or point2 - point > 12
+else if point1 - point > input_out or point2 - point > input_out
     is_out := true
     signal_out := true
     in_arr := array.new_int()
+    if price_in != 0.0 and call_price_exit == 0.0
+        call_price_exit := close
+        call_time_exit := time
+        put_price_exit := 0.0
+        put_time_exit := 0
+    
     if max_gain_in != 0.0
         call_gain := close - price_in
         h3 = hour(time_in, "GMT-7")
@@ -588,11 +630,28 @@ else if point1 - point > 12 or point2 - point > 12
         if str.length(str_m4) == 1
             str_m4 := str.format("0{0}", m4)
             
+        
+        h41 = hour(call_time_exit, "GMT-7")
+        str_h41 = str.format("{0}",h41)
+        if str.length(str_h41) == 1
+            str_h41 := str.format("0{0}", h41)
+        m41 = minute(call_time_exit, "GMT-7")
+        str_m41 = str.format("{0}",m41)
+        if str.length(str_m41) == 1
+            str_m41 := str.format("0{0}", m41)
+            
+            
         str_in2 = str.format("{0}:{1} ${2}", str_h3, str_m3, price_in)
-        str_max_in2 = str.format("{0}:{1} ${2}",str_h4, str_m4, max_price_in)
-        str_gain_in2 = str.format("{0}", max_gain_in)
-        array.push(gain_in_arr, str.format("CALL: {0}\nEX: {1}\nGain: {2} points", str_in2, str_max_in2, str_gain_in2))
+        str_max_in2 = str.format("{0}:{1} ${2}\nExp G/L: {3}pts",str_h4, str_m4, max_price_in, max_gain_in)
+        str_gain_loss_in2 = str.format("{0}:{1} ${2}\nG/L: {3}pts", str_h41, str_m41, call_price_exit, call_price_exit - price_in)
+        
+        array.push(gain_in_arr, str.format("C: {0}\nEX: {1}\nExp: {2}", str_in2, str_gain_loss_in2, str_max_in2))
+        
+        
+        if array.size(gain_in_arr) > 12
+            array.remove(gain_in_arr, 0)
         max_gain_in := 0.0
+        call_price_exit := 0.0
         in_arr := array.new_int()
         
     put_gain := 0.0
@@ -626,7 +685,14 @@ if price_out > 0.0
     if close <= price_out
         stoploss_out := close + 10
         
+// stop loss CALL        
 if stoploss_in != 0.0 and close <= stoploss_in
+    if price_in != 0.0 and put_price_exit == 0.0
+        call_price_exit := close
+        call_time_exit := time
+        put_price_exit := 0.0
+        put_time_exit := 0
+        
     if max_gain_in != 0.0
         call_gain := close - price_in
         h5 = hour(time_in, "GMT-7")
@@ -646,20 +712,39 @@ if stoploss_in != 0.0 and close <= stoploss_in
         if str.length(str_m6) == 1
             str_m6 := str.format("0{0}", m6)
             
+        h9 = hour(call_time_exit, "GMT-7")
+        str_h9 = str.format("{0}",h9)
+        if str.length(str_h9) == 1
+            str_h9 := str.format("0{0}", h9)
+        m9 = minute(call_time_exit, "GMT-7")
+        str_m9 = str.format("{0}",m9)
+        if str.length(str_m9) == 1
+            str_m9 := str.format("0{0}", m9)
+            
         str_in3 = str.format("{0}:{1} ${2}", str_h5, str_m5, price_in)
-        str_max_in3 = str.format("{0}:{1} ${2}",str_h6, str_m6, max_price_in)
-        str_gain_in3 = str.format("{0}", max_gain_in)
-        array.push(gain_in_arr, str.format("CALL: {0}\nST: {1}\nGain: {2} points", str_in3, str_max_in3, str_gain_in3))
+        str_max_in3 = str.format("{0}:{1} ${2}\nExp G/L: {3}pts",str_h6, str_m6, max_price_in, max_gain_in)
+        str_gain_loss3 = str.format("{0}:{1} ${2}\nG/L: {3}pts", str_h9, str_m9, call_price_exit, call_price_exit - price_in)
         
+        array.push(gain_in_arr, str.format("C: {0}\nST: {1}\nExp: {2}", str_in3, str_gain_loss3, str_max_in3))
+        if array.size(gain_in_arr) > 12
+            array.remove(gain_in_arr, 0)
         max_gain_in := 0.0
         max_time_in := 0
         max_price_in := 0.0
         time_in := 0
         price_in := 0.0
         stoploss_in := 0.0
-        
+        put_price_exit := 0.0
         in_arr := array.new_int()
+    
+// stoploss PUT
 if stoploss_out != 0.0 and close > stoploss_out
+    if price_out != 0.0 and put_price_exit == 0.0
+        call_price_exit := 0.0
+        call_time_exit := 0
+        put_price_exit := close
+        put_time_exit := time
+        
     if max_gain_out != 0.0
         put_gain := price_out - close
         h7 = hour(time_out, "GMT-7")
@@ -679,11 +764,23 @@ if stoploss_out != 0.0 and close > stoploss_out
         if str.length(str_m8) == 1
             str_m8 := str.format("0{0}", m8)
             
+        h10 = hour(put_time_exit, "GMT-7")
+        str_h10 = str.format("{0}",h10)
+        if str.length(str_h10) == 1
+            str_h10 := str.format("0{0}", h10)
+        m10 = minute(put_time_exit, "GMT-7")
+        str_m10 = str.format("{0}",m10)
+        if str.length(str_m10) == 1
+            str_m10 := str.format("0{0}", m10)
+            
         str_out4 = str.format("{0}:{1} ${2}", str_h7, str_m7, price_out)
-        str_max_out4 = str.format("{0}:{1} ${2}",str_h8, str_m8, max_price_out)
-        str_gain_out4 = str.format("{0}", max_gain_out)
-        array.push(gain_out_arr, str.format("PUT: {0}\nST: {1}\nGain: {2} points", str_out4, str_max_out4, str_gain_out4))
+        str_max_out4 = str.format("{0}:{1} ${2}\nExp G/L: {3}pts",str_h8, str_m8, max_price_out, max_gain_out)
         
+        str_gain_loss4 = str.format("{0}:{1} ${2}\nG/L: {3}pts", str_h10, str_m10, put_price_exit, price_out - put_price_exit)
+        
+        array.push(gain_out_arr, str.format("P: {0}\nST: {1}\nExp: {2}", str_out4, str_gain_loss4, str_max_out4))
+        if array.size(gain_out_arr) > 12
+            array.remove(gain_out_arr, 0)
         max_gain_out := 0.0
         max_time_out := 0
         max_price_out := 0.0
@@ -691,6 +788,8 @@ if stoploss_out != 0.0 and close > stoploss_out
         price_out := 0.0
         stoploss_out := 0.0
         out_arr := array.new_int()
+        put_price_exit := 0.0
+        
 if array.size(in_arr) > 0
     if array.size(in_arr) > 1
         //label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0} {1} {2} {3}", 'I--->', array.size(in_arr), price_in, close), textcolor=color.green, color=color.new(color.black, 40), size=size.normal, style=label.style_none)
@@ -712,8 +811,8 @@ if array.size(out_arr) > 0
         //label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0} {1}", 'OUT', array.size(out_arr)), textcolor=txt_clr, color=color.new(color.black, 20), size=size.normal, style=label.style_none)
         label.new(bar_index, src_1day-0.008*src_1day, text=str.format("{0}", 'OUT'), textcolor=txt_clr, color=color.new(color.black, 20), size=size.normal, style=label.style_none)
     
-EMA_CHANGE_CALL = point - point1 >= 15 
-EMA_CHANGE_PUT = point - point1 <= -12
+EMA_CHANGE_CALL = point - point1 >= input_in 
+EMA_CHANGE_PUT = point - point1 <= -input_out
 AWAY_EMA200 = point
 BIGDROP = bigdrop
 BOTTOMSUPPORT = bottomsupport
@@ -790,7 +889,7 @@ if BIGDROP == false
         if call_price == 0.0
             call_price := close
             
-if logic_call != 'N/A' and (logic_call != 'CALL case3' and BIGDROP == true or point1 != 0.0 and point - point1 <= -12 or point2 != 0.0 and point - point2 <= -12)
+if logic_call != 'N/A' and (logic_call != 'CALL case3' and BIGDROP == true or point1 != 0.0 and point - point1 <= -input_out or point2 != 0.0 and point - point2 <= -input_out)
     logic_exit_call := 'Exit CALL'
     logic_call := 'N/A'
     label.new(bar_index, high + 0.002*high, text=str.format("{0}", logic_exit_call), textcolor=color.green, color=color.new(color.black, 40), size=size.normal, style=label.style_label_down)
@@ -849,7 +948,7 @@ if BOTTOMSUPPORT == false
             if put_price == 0.0
                 put_price := close
                 
-if logic_put != 'N/A' and (logic_put != 'PUT case3' and BOTTOMSUPPORT == true or point1 != 0.0 and point - point1 >= 12 or point2 != 0.0 and point - point2 >= 12)
+if logic_put != 'N/A' and (logic_put != 'PUT case3' and BOTTOMSUPPORT == true or point1 != 0.0 and point - point1 >= input_out or point2 != 0.0 and point - point2 >= input_out)
     logic_exit_put := 'Exit PUT'
     logic_put := 'N/A'
     label.new(bar_index, low-0.002*low, text=str.format("{0}", logic_exit_put), textcolor=color.red, color=color.new(color.black, 40), size=size.normal, style=label.style_label_up)
@@ -961,6 +1060,16 @@ st_tsl = f_supertrendinout(1, 1)
 
 linecolor = close >= st_tsl ? color.green : color.red
 plot(st_tsl, color = linecolor , linewidth = 4,title = "In - Out")
+// check trend
+can_exit_call = close[1] >= st_tsl[1] and close < st_tsl
+if can_exit_call
+    label.new(bar_index, high, text=str.format("{0}", 'Exit CALL'), textcolor=color.white, color=color.new(color.black, 40), size=size.normal, style=label.style_label_up)
+    
+can_exit_put  = close[1] < st_tsl[1] and close >= st_tsl
+if can_exit_put
+    label.new(bar_index, low, text=str.format("{0}", 'Exit PUT'), textcolor=color.white, color=color.new(color.black, 40), size=size.normal, style=label.style_label_down)
+    
+
 ////////////////////////////////////////
 
 
@@ -969,122 +1078,123 @@ if barstate.islast
     label.new(eth_idx+10, low_1day, text=str.format("{0}", 'ETH'), textcolor=color.white, color=color.new(color.black, 40), size=size.normal, style=label.style_square)
     label.new(rth_idx+15, low_1day, text=str.format("{0}", 'RTH'), textcolor=color.white, color=color.new(color.black, 40), size=size.normal, style=label.style_square)
     
-    var table panel = table.new("bottom_right", 6, 30)
-
-    point_day = high_1day - low_1day
+    if show_table
+        var table panel = table.new("bottom_right", 6, 30)
     
-    table.cell(panel, 0, 1, "Day Low", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 1, str.format("${0} {1} {2} {3}", low_1day, m, s, last_second), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 2, "Day High", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 2, str.format("${0}", high_1day), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 3, "Mid", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 3, str.format("${0}", mid_day), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 4, "Points", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 4, str.format("{0}", point_day), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
-    
-    
-    table.cell(panel, 0, 5, "TREND", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 5, txtMarkTrend, bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
-    table.cell(panel, 0, 6, "MACD TREND", bgcolor = macd_color, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 6, str.format("{0} - {1}", macd_status, is_big_call?'BIG CALL' : 'BIG PUT'), bgcolor = macd_color, text_color=color.black, text_halign=text.align_left)    
-    
-    
-    if low < wma200
-        table.cell(panel, 0, 7, "EMA200%", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 7, str.format("{0}%   {1}", pct_low_wma200, txtBottom), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left) 
-    
-        predictBottomPrice = wma200 + pctBottom/100*wma200
-        table.cell(panel, 0, 8, "PREDICT BOTTOM PRICE", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 8, str.format("{0}", predictBottomPrice), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    else if high > wma200
-        table.cell(panel, 0, 7, "EMA200%", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 7, str.format("{0}%   {1}", pct_high_wma200, txtTop), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left) 
-    
-        predictTopPrice = wma200 + pctTop/100*wma200
-        table.cell(panel, 0, 8, "PREDICT TOP PRICE", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 8, str.format("{0}", predictTopPrice), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left) 
-    
-    txtAway = ''
-    
-    if isReverse == 1
-        txtAway := str.format('PUT at {0}', close + 15)
-    else if isReverse == 2
-        txtAway := str.format('CALL at {0}', close - 15)
-    table.cell(panel, 0, 9, "Price Away EMA200", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 9, str.format("{0} {1}", point, txtAway), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 10, "Support", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 10, str.format("{0}", TF1_SupportZone[0]), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 11, "EMA_CHANGE_CALL", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 11, str.format("{0}", EMA_CHANGE_CALL), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 12, "BIGDROP", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 12, str.format("{0}", BIGDROP), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 13, "BOTTOMSUPPORT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 13, str.format("{0}", BOTTOMSUPPORT), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 14, "Point - Point1", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-    table.cell(panel, 1, 14, str.format("{0}", point - point1), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    if price_in > 0.0
-        table.cell(panel, 0, 15, "CALL", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 15, str.format("${0}", price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        point_day = high_1day - low_1day
         
-        table.cell(panel, 0, 16, "Trailing Stoploss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 16, str.format("${0}", stoploss_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        table.cell(panel, 0, 1, "Day Low", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 1, str.format("${0} {1} {2} {3}", low_1day, m, s, last_second), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
         
-        if call_gain != 0.0
-            table.cell(panel, 0, 17, "STOPLOSS", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-            table.cell(panel, 1, 17, str.format("{0} points", call_gain), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-        else
-            table.cell(panel, 0, 17, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-            table.cell(panel, 1, 17, str.format("{0} points", close-price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    if price_out > 0.0
-        table.cell(panel, 0, 15, "PUT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 15, str.format("${0}", price_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        table.cell(panel, 0, 2, "Day High", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 2, str.format("${0}", high_1day), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
         
-        table.cell(panel, 0, 16, "Trailing Stoploss Out", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 16, str.format("${0}", stoploss_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        table.cell(panel, 0, 3, "Mid", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 3, str.format("${0}", mid_day), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
         
-        if put_gain != 0.0
-            table.cell(panel, 0, 17, "STOPLOSS", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-            table.cell(panel, 1, 17, str.format("{0} points", put_gain), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-        else
-            table.cell(panel, 0, 17, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-            table.cell(panel, 1, 17, str.format("{0} points", price_out - close), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-    
-    table.cell(panel, 0, 23, '', height=20, text_halign=text.align_left)
-    table.cell(panel, 1, 23, '', height=20, text_halign=text.align_left)    
-    
+        table.cell(panel, 0, 4, "Points", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 4, str.format("{0}", point_day), bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
+        
+        
+        table.cell(panel, 0, 5, "TREND", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 5, txtMarkTrend, bgcolor = color.yellow, text_color=color.black, width=16, text_halign=text.align_left)    
+        table.cell(panel, 0, 6, "MACD TREND", bgcolor = macd_color, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 6, str.format("{0} - {1}", macd_status, is_big_call?'BIG CALL' : 'BIG PUT'), bgcolor = macd_color, text_color=color.black, text_halign=text.align_left)    
+        
+        
+        if low < wma200
+            table.cell(panel, 0, 7, "EMA200%", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 7, str.format("{0}%   {1}", pct_low_wma200, txtBottom), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left) 
+        
+            predictBottomPrice = wma200 + pctBottom/100*wma200
+            table.cell(panel, 0, 8, "PREDICT BOTTOM PRICE", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 8, str.format("{0}", predictBottomPrice), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        else if high > wma200
+            table.cell(panel, 0, 7, "EMA200%", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 7, str.format("{0}%   {1}", pct_high_wma200, txtTop), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left) 
+        
+            predictTopPrice = wma200 + pctTop/100*wma200
+            table.cell(panel, 0, 8, "PREDICT TOP PRICE", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 8, str.format("{0}", predictTopPrice), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left) 
+        
+        txtAway = ''
+        
+        if isReverse == 1
+            txtAway := str.format('PUT at {0}', close + 15)
+        else if isReverse == 2
+            txtAway := str.format('CALL at {0}', close - 15)
+        table.cell(panel, 0, 9, "Price Away EMA200", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 9, str.format("{0} {1}", point, txtAway), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 10, "Support", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 10, str.format("{0}", TF1_SupportZone[0]), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 11, "EMA_CHANGE_CALL", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 11, str.format("{0}", EMA_CHANGE_CALL), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 12, "BIGDROP", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 12, str.format("{0}", BIGDROP), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 13, "BOTTOMSUPPORT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 13, str.format("{0}", BOTTOMSUPPORT), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 14, "Point - Point1", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 14, str.format("{0}", point - point1), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        if price_in > 0.0
+            table.cell(panel, 0, 15, "CALL", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 15, str.format("${0}", price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+            
+            table.cell(panel, 0, 16, "Trailing Stoploss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 16, str.format("${0}", stoploss_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+            
+            if call_gain != 0.0
+                table.cell(panel, 0, 17, "STOPLOSS", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+                table.cell(panel, 1, 17, str.format("{0} points", call_gain), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+            else
+                table.cell(panel, 0, 17, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+                table.cell(panel, 1, 17, str.format("{0} points", close-price_in), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        if price_out > 0.0
+            table.cell(panel, 0, 15, "PUT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 15, str.format("${0}", price_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+            
+            table.cell(panel, 0, 16, "Trailing Stoploss Out", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 16, str.format("${0}", stoploss_out), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+            
+            if put_gain != 0.0
+                table.cell(panel, 0, 17, "STOPLOSS", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+                table.cell(panel, 1, 17, str.format("{0} points", put_gain), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+            else
+                table.cell(panel, 0, 17, "Gain", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+                table.cell(panel, 1, 17, str.format("{0} points", price_out - close), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        
+        table.cell(panel, 0, 23, '', height=20, text_halign=text.align_left)
+        table.cell(panel, 1, 23, '', height=20, text_halign=text.align_left)    
+        
     ////////////////////////////////////////////////////////////////////////////////
     // show gainloss
-
-    var table panel_in = table.new("bottom_left", array.size(gain_in_arr)+2, 30)
-    if array.size(gain_in_arr) > 0
-        table.cell(panel_in, 0, 1, 'IN', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
-    if array.size(gain_out_arr) > 0
-        table.cell(panel_in, 0, 2, 'OUT', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
-            
-    if array.size(gain_in_arr) > 0
-        for k = 0 to array.size(gain_in_arr) - 1
-
-            if k%2 == 0
-                table.cell(panel_in, k+1, 1, array.get(gain_in_arr, k), bgcolor = color.gray, text_color=color.black, width=16, text_halign=text.align_left)
-            else
-                table.cell(panel_in, k+1, 1, array.get(gain_in_arr, k), bgcolor = color.green, text_color=color.black, width=16, text_halign=text.align_left)
-    if array.size(gain_out_arr) > 0
-        for j = 0 to array.size(gain_out_arr) - 1
-            if j%2 == 0
-                table.cell(panel_in, j+1, 2, array.get(gain_out_arr, j), bgcolor = color.red, text_color=color.black, width=16, text_halign=text.align_left)
-            else
-                table.cell(panel_in, j+1, 2, array.get(gain_out_arr, j), bgcolor = color.gray, text_color=color.black, width=16, text_halign=text.align_left)
+    if only_show_gain
+        var table panel_in = table.new("bottom_left", 100, 30)
+        if array.size(gain_in_arr) > 0
+            table.cell(panel_in, 0, 1, 'IN', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
+        if array.size(gain_out_arr) > 0
+            table.cell(panel_in, 0, 2, 'OUT', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
+                
+        if array.size(gain_in_arr) > 0
+            for k = 0 to array.size(gain_in_arr) - 1
+    
+                if k%2 == 0
+                    table.cell(panel_in, k+1, 1, array.get(gain_in_arr, k), bgcolor = color.gray, text_color=color.black, width=8, text_halign=text.align_left, text_size=size.tiny)
+                else
+                    table.cell(panel_in, k+1, 1, array.get(gain_in_arr, k), bgcolor = color.green, text_color=color.black, width=8, text_halign=text.align_left, text_size=size.tiny)
+        if array.size(gain_out_arr) > 0
+            for j = 0 to array.size(gain_out_arr) - 1
+                if j%2 == 0
+                    table.cell(panel_in, j+1, 2, array.get(gain_out_arr, j), bgcolor = color.red, text_color=color.black, width=8, text_halign=text.align_left, text_size=size.tiny)
+                else
+                    table.cell(panel_in, j+1, 2, array.get(gain_out_arr, j), bgcolor = color.gray, text_color=color.black, width=8, text_halign=text.align_left, text_size=size.tiny)
             
     
     
