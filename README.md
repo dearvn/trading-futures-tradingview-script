@@ -9,7 +9,10 @@ For example, when "IN" signal notify I can CALL on Tradovate platform.
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/nq.png?raw=true "NQ1")
 
-# History Gain/Loss
-2022-08-30 Gain PUT 253 Points
+## History Gain/Loss
+* 2022-08-30 Gain PUT 253 Points
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/nq-2022-08-30_at_22.12.05.png?raw=true "NQ1 2022-08-30 at 22.12.05")
+
+* 2022-08-31 Gain/Loss in evidence
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/nq_2022-30-31_at_17.34.17.png?raw=true "NQ1 2022-08-31 at 17.24.17")
 
