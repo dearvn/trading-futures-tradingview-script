@@ -16,3 +16,7 @@ For example, when "IN" signal notify I can CALL on Tradovate platform.
 * 2022-08-31 Gain/Loss in evidence
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/nq_2022-30-31_at_17.34.17.png?raw=true "NQ1 2022-08-31 at 17.24.17")
 
+* 2022-09-01 Gain/Loss in evidence
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/nq_2022-09-01.png?raw=true "NQ1 2022-09-01")
+
+
