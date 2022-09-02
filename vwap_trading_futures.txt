@@ -298,6 +298,64 @@ if price_put > 0.0 and price_put <= close - 12 or stoploss_put != 0.0 and close 
         price_put_exit_time := 0
         stoploss_put := 0.0
         
+// IMPORTANT SIGNAL TAKE CARE TRADING WHEN GET THIS ALERT
+crossUpWMA13_48 = ta.crossover(wma13, wma48)
+crossDownWMA13_48 = ta.crossunder(wma13, wma48)
+crossUpWMA48_200 = ta.crossover(wma48, wma200)
+crossDownWMA48_200 = ta.crossunder(wma48, wma200)
+
+var int crossdown_bar_13_48 = 0
+var int crossdown_bar_48_200 = 0
+var int crossup_bar_13_48 = 0
+var int crossup_bar_48_200 = 0
+
+if crossDownWMA13_48
+    crossdown_bar_13_48 := bar_index
+    crossup_bar_13_48 := 0
+if crossUpWMA13_48
+    crossup_bar_13_48 := bar_index
+    crossdown_bar_13_48 := 0
+    
+if crossDownWMA48_200
+    crossdown_bar_48_200 := bar_index
+    crossup_bar_48_200 := 0
+if crossUpWMA48_200
+    crossdown_bar_48_200 := 0
+    crossup_bar_48_200 := bar_index
+    
+   
+var bool is_big_put = false
+var bool is_big_call = false
+if crossdown_bar_48_200 and crossdown_bar_13_48 
+    if crossdown_bar_13_48 < crossdown_bar_48_200
+        label.new(crossdown_bar_48_200, upperBandValue1, text=str.format("{0}", "BIG PUT\nIs this BOTTOM? NO! Don't CALL this time!"), textcolor=color.white, color=color.red, size=size.normal, style=label.style_triangledown)
+        //label.new(crossdown_bar_48_200, wma13, text=str.format("{0}", 'BIG PUT'), textcolor=color.white, color=color.red, size=size.normal, style=label.style_triangledown)
+        crossdown_bar_13_48 := 0
+        crossdown_bar_48_200 := 0
+        is_big_put := true
+        is_big_call := false
+    else
+        label.new(crossdown_bar_13_48, upperBandValue1, text=str.format("{0}", "BIG PUT - Is this BOTTOM? NO! Don't CALL this time!"), textcolor=color.white, color=color.red, size=size.normal, style=label.style_triangledown)
+        //label.new(crossdown_bar_13_48, wma13, text=str.format("{0}", 'BIG PUT'), textcolor=color.white, color=color.red, size=size.normal, style=label.style_triangledown)
+        crossdown_bar_13_48 := 0
+        crossdown_bar_48_200 := 0
+        is_big_put := true
+        is_big_call := false
+if crossup_bar_48_200 and crossup_bar_13_48 
+    if crossup_bar_13_48 < crossup_bar_48_200
+        //label.new(crossup_bar_48_200, wma48, text=str.format("{0}", 'BIG CALL'), textcolor=color.white, color=color.green, size=size.normal, style=label.style_triangleup)
+        label.new(crossup_bar_48_200, lowerBandValue1, text=str.format("{0}", 'BIG CALL'), textcolor=color.white, color=color.green, size=size.normal, style=label.style_triangleup)
+        crossup_bar_13_48 := 0
+        crossup_bar_48_200 := 0
+        is_big_put := false
+        is_big_call := true
+    else
+        //label.new(crossup_bar_13_48, wma48, text=str.format("{0}", 'BIG CALL'), textcolor=color.white, color=color.green, size=size.normal, style=label.style_triangleup)
+        label.new(crossup_bar_13_48, lowerBandValue1, text=str.format("{0}", 'BIG CALL'), textcolor=color.white, color=color.green, size=size.normal, style=label.style_triangleup)
+        crossup_bar_13_48 := 0
+        crossup_bar_48_200 := 0
+        is_big_put := false
+        is_big_call := true
         
 if barstate.islast
     // table summary
