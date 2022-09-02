@@ -1,4 +1,5 @@
 ## IMPORTANT
+* Currently, I am trading on `vwap_trading_futures.txt` script
 Belong to ticker and timeframe, I set input IN and input OUT
 Backtest on timeframe 5M
 * ES: input IN = 5, input OUT = 3
