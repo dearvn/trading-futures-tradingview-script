@@ -304,7 +304,7 @@ if barstate.islast
     var table panel = table.new("bottom_right", 6, 30)
     
     table.cell(panel, 0, 1, "POINT AWAY FROM VWAP", bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left)
-    table.cell(panel, 1, 1, str.format("{0}", close - vwapValue), bgcolor = color.yellow, text_color=color.black, width=8, text_halign=text.align_left)    
+    table.cell(panel, 1, 1, str.format("{0}", close - vwapValue), bgcolor = color.yellow, text_color=color.black, width=10, text_halign=text.align_left)    
     
     table.cell(panel, 0, 3, "POINT AWAY FROM VWAP LOW", bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left)
     table.cell(panel, 1, 3, str.format("{0} {1}", close - lowerBandValue1, array.size(gain_call_arr)), bgcolor = color.yellow, text_color=color.black, width=8, text_halign=text.align_left)    
@@ -318,19 +318,26 @@ if barstate.islast
         
         table.cell(panel, 0, 9, "Trailing Stoploss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
         table.cell(panel, 1, 9, str.format("{0}", stoploss_call), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        if price_call_exit > 0.0
+            table.cell(panel, 0, 11, "Gain/Loss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 11, str.format("{0} points", price_call_exit-price_call), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)  
+        else
+            table.cell(panel, 0, 11, "Gain/Loss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 11, str.format("{0} points", close-price_call), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)  
         
-        table.cell(panel, 0, 11, "Gain/Loss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 11, str.format("{0} points", price_call_exit-price_call), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
     if price_put > 0.0
         table.cell(panel, 0, 7, "PUT", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
         table.cell(panel, 1, 7, str.format("{0}", price_put), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
         
         table.cell(panel, 0, 9, "Trailing Stoploss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
         table.cell(panel, 1, 9, str.format("{0}", stoploss_put), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        if price_put_exit > 0.0
+            table.cell(panel, 0, 11, "Gain/Loss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 11, str.format("{0} points", price_put - price_put_exit), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
+        else
+            table.cell(panel, 0, 11, "Gain/Loss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+            table.cell(panel, 1, 11, str.format("{0} points", price_put - close), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
         
-        table.cell(panel, 0, 11, "Gain/Loss", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
-        table.cell(panel, 1, 11, str.format("{0} points", price_put_exit-price_put), bgcolor = color.yellow, text_color=color.black, text_halign=text.align_left)    
-           
     table.cell(panel, 0, 23, '', height=20, text_halign=text.align_left)
     table.cell(panel, 1, 23, '', height=20, text_halign=text.align_left)    
     
