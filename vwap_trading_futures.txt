@@ -1,0 +1,343 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © binancash
+
+//@version=5
+indicator("Snag - VWAP", overlay=true)
+
+input_in = input.float(title='Input In Point', defval=15.0)
+input_out = input.float(title='Input Out Point', defval=12.0)
+
+var cumVol = 0.
+cumVol += nz(volume)
+if barstate.islast and cumVol == 0
+    runtime.error("No volume is provided by the data vendor.")
+
+computeVWAP(src, isNewPeriod) =>
+	var float sumSrcVol = na
+	var float sumVol = na
+    var float sumSrcSrcVol = na
+
+	sumSrcVol := isNewPeriod ? src * volume : src * volume + sumSrcVol[1]
+	sumVol := isNewPeriod ? volume : volume + sumVol[1]
+	// sumSrcSrcVol calculates the dividend of the equation that is later used to calculate the standard deviation
+	sumSrcSrcVol := isNewPeriod ? volume * math.pow(src, 2) : volume * math.pow(src, 2) + sumSrcSrcVol[1]
+
+	_vwap = sumSrcVol / sumVol
+	variance = sumSrcSrcVol / sumVol - math.pow(_vwap, 2)
+	variance := variance < 0 ? 0 : variance
+	stDev = math.sqrt(variance)
+
+	[_vwap, stDev]
+
+computeStdevBands(value, stdev, bandMult) =>
+    float upperBand = value + stdev * bandMult
+    float lowerBand = value - stdev * bandMult
+    [upperBand, lowerBand]
+
+hideonDWM = input(false, title="Hide VWAP on 1D or Above", group="VWAP Settings")
+var anchor = input.string(defval = "Session", title="Anchor Period",
+ options=["Session", "Week", "Month", "Quarter", "Year", "Decade", "Century", "Earnings", "Dividends", "Splits"], group="VWAP Settings")
+src = input(title = "Source", defval = hlc3, group="VWAP Settings")
+offset = input(0, title="Offset", group="VWAP Settings")
+
+showBand_1 = input(true, title="", group="Standard Deviation Bands Settings", inline="band_1")
+stdevMult_1 = input(1.0, title="Bands Multiplier #1", group="Standard Deviation Bands Settings", inline="band_1")
+showBand_2 = input(false, title="", group="Standard Deviation Bands Settings", inline="band_2")
+stdevMult_2 = input(2.0, title="Bands Multiplier #2", group="Standard Deviation Bands Settings", inline="band_2")
+showBand_3 = input(false, title="", group="Standard Deviation Bands Settings", inline="band_3")
+stdevMult_3 = input(3.0, title="Bands Multiplier #3", group="Standard Deviation Bands Settings", inline="band_3")
+
+timeChange(period) =>
+	ta.change(time(period))
+
+new_earnings = request.earnings(syminfo.tickerid, earnings.actual, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+new_dividends = request.dividends(syminfo.tickerid, dividends.gross, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+new_split = request.splits(syminfo.tickerid, splits.denominator, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+
+isNewPeriod = switch anchor
+	"Earnings" => not na(new_earnings)
+	"Dividends" => not na(new_dividends)
+	"Splits" => not na(new_split)
+	"Session" => timeChange("D")
+	"Week" => timeChange("W")
+	"Month" => timeChange("M")
+	"Quarter" => timeChange("3M")
+	"Year" => timeChange("12M")
+	"Decade" => timeChange("12M") and year % 10 == 0
+	"Century" => timeChange("12M") and year % 100 == 0
+	=> false
+
+isEsdAnchor = anchor == "Earnings" or anchor == "Dividends" or anchor == "Splits"
+if na(src[1]) and not isEsdAnchor
+	isNewPeriod := true
+
+float vwapValue = na
+float stdev = na
+float upperBandValue1 = na
+float lowerBandValue1 = na
+float upperBandValue2 = na
+float lowerBandValue2 = na
+float upperBandValue3 = na
+float lowerBandValue3 = na
+
+if not (hideonDWM and timeframe.isdwm)
+    [_vwap, _stdev] = computeVWAP(src, isNewPeriod)
+    vwapValue := _vwap
+    stdev := _stdev
+	[upBV1, loBV1] = computeStdevBands(vwapValue, stdev, stdevMult_1)
+	upperBandValue1 := showBand_1 ? upBV1 : na
+	lowerBandValue1 := showBand_1 ? loBV1 : na
+	[upBV2, loBV2] = computeStdevBands(vwapValue, stdev, stdevMult_2)
+	upperBandValue2 := showBand_2 ? upBV2 : na
+	lowerBandValue2 := showBand_2 ? loBV2 : na
+	[upBV3, loBV3] = computeStdevBands(vwapValue, stdev, stdevMult_3)
+	upperBandValue3 := showBand_3 ? upBV3 : na
+	lowerBandValue3 := showBand_3 ? loBV3 : na
+
+plot(vwapValue, title="VWAP", color=#2962FF, offset=offset)
+
+upperBand_1 = plot(upperBandValue1, title="Upper Band #1", color=color.green, offset=offset)
+lowerBand_1 = plot(lowerBandValue1, title="Lower Band #1", color=color.green, offset=offset)
+fill(upperBand_1, lowerBand_1, title="Bands Fill #1", color= color.new(color.green, 95))
+
+upperBand_2 = plot(upperBandValue2, title="Upper Band #2", color=color.olive, offset=offset)
+lowerBand_2 = plot(lowerBandValue2, title="Lower Band #2", color=color.olive, offset=offset)
+fill(upperBand_2, lowerBand_2, title="Bands Fill #2", color= color.new(color.olive, 95))
+
+upperBand_3 = plot(upperBandValue3, title="Upper Band #3", color=color.teal, offset=offset)
+lowerBand_3 = plot(lowerBandValue3, title="Lower Band #3", color=color.teal, offset=offset)
+fill(upperBand_3, lowerBand_3, title="Bands Fill #3", color= color.new(color.teal, 95))
+
+
+// LOGIC
+f_RoundUp(number, decimals=0) =>
+    factor = math.pow(10, decimals)
+    math.ceil(number * factor) / factor
+    
+f_nDecimals(_in) =>
+    n  = int(na), s = str.tostring(_in), p = str.pos(s, ".")
+    n := na(str.tonumber(s)) ? int(na) : na(p) ? 0 :
+     str.length(str.substring(s, p + 1))
+
+_n = f_nDecimals(close)
+
+wma13 = ta.wma(close, 13)
+//plot(wma13, title="WMA13", color=color.blue)
+
+wma48 = ta.wma(close, 48)
+//plot(wma48, title="WMA48", color=color.yellow)
+
+wma200 = ta.wma(close, 200)
+plot(wma200, title="WMA200", color=color.white)
+
+point = f_RoundUp(close - wma200, 0)
+var in_arr = array.new_float()
+var out_arr = array.new_float()
+is_in = false
+is_out = false
+if (point - point[1] > input_in or point - point[2] > input_in) and close > lowerBandValue1
+    is_in := true
+    if array.size(in_arr) == 0
+        label.new(bar_index, low - 50, text=str.format("{0}", 'IN'), textcolor=color.white, color=color.blue, size=size.tiny, style=label.style_triangleup)
+    
+    out_arr := array.new_int()
+    array.push(in_arr, time)
+    
+else if (point[1] - point > input_out or point[2] - point > input_out) and close < upperBandValue1
+    is_out := true
+    if array.size(out_arr) == 0
+        label.new(bar_index, high + 50, text=str.format("{0}", 'OUT'), textcolor=color.white, color=color.gray, size=size.tiny, style=label.style_triangledown)
+    
+    
+    in_arr := array.new_int()
+    array.push(out_arr, time)
+
+
+var call_arr = array.new_int()
+var put_arr = array.new_int()
+
+var gain_call_arr = array.new_string()
+var gain_put_arr = array.new_string()
+// reset array next day
+if hour(time, "GMT-7") == 6 and minute(time, "GMT-7") == 30
+    gain_call_arr := array.new_string()
+    gain_put_arr := array.new_string()
+
+
+m_now = minute(timenow, "GMT-7")
+s_now = second(timenow, "GMT-7")
+
+// check close is up vwap
+is_up_vwap = close[2] < vwapValue[2] and close[1] < vwapValue[1] and close > vwapValue
+is_down_vwap = close[2] > vwapValue[2] and close[1] > vwapValue[1] and close < vwapValue
+
+var float price_call = 0.0
+var int price_call_time = 0
+var float price_call_exit = 0.0
+var int price_call_exit_time = 0
+var float stoploss_call = 0.0
+
+var float price_put = 0.0
+var int price_put_time = 0
+var float price_put_exit = 0.0
+var int price_put_exit_time = 0
+var float stoploss_put = 0.0
+
+
+call_color = color.yellow
+put_color = color.red
+//if timenow%2 == 0
+//    call_color := color.orange
+//    put_color := color.gray
+
+if is_up_vwap and vwapValue < wma200
+    
+    label.new(bar_index, low - 30, text=str.format("{0}", 'CALL'), textcolor=color.white, color=call_color, size=size.tiny, style=label.style_triangleup)
+    if price_call == 0.0
+        price_call := close
+        price_call_time := time
+    
+if is_down_vwap and vwapValue > wma200 and is_out
+    label.new(bar_index, high + 30, text=str.format("{0}", 'PUT'), textcolor=color.white, color=put_color, size=size.tiny, style=label.style_triangledown)
+    if price_put == 0.0
+        price_put := close
+        price_put_time := time
+    
+// CALL Trailing Stoploss
+if price_call > 0.0
+    // set stoploss
+    stoploss_call := low[1]
+    
+        
+// PUT Trailing Stoploss
+if price_put > 0.0
+    // set stoploss
+    stoploss_put := high[1]
+    
+
+// stop loss CALL        
+if stoploss_call != 0.0 and close <= stoploss_call or is_out
+    
+    if price_call > 0.0
+        label.new(bar_index, high + 30, text=str.format("{0}", 'OK'), textcolor=color.white, color=put_color, size=size.tiny, style=label.style_triangledown)
+    
+        price_call_exit := close
+        price_call_exit_time := time
+        
+        // entry call
+        h_call1 = hour(price_call_time, "GMT-7")
+        str_h_call1 = str.format("{0}", h_call1)
+        if str.length(str_h_call1) == 1
+            str_h_call1 := str.format("0{0}", h_call1)
+        m_call1 = minute(price_call_time, "GMT-7")
+        str_m_call1 = str.format("{0}", m_call1)
+        if str.length(str_m_call1) == 1
+            str_m_call1 := str.format("0{0}", m_call1)
+        str_call_entry1 = str.format("{0}:{1} ${2}", str_h_call1, str_m_call1, price_call)
+        
+        
+        // exit call
+        h_exit_call1 = hour(price_call_exit_time, "GMT-7")
+        str_h_exit_call1 = str.format("{0}", h_exit_call1)
+        if str.length(str_h_exit_call1) == 1
+            str_h_exit_call1 := str.format("0{0}", h_exit_call1)
+        m_exit_call1 = minute(price_call_exit_time, "GMT-7")
+        str_m_exit_call1 = str.format("{0}", m_exit_call1)
+        if str.length(str_m_exit_call1) == 1
+            str_m_exit_call1 := str.format("0{0}", m_exit_call1)
+        str_call_exit1 = str.format("{0}:{1} ${2}\nG/L: ${3}", str_h_exit_call1, str_m_exit_call1, price_call_exit, price_call_exit-price_call)
+        
+        
+        array.push(gain_call_arr, str.format("CALL: {0}\nExit: {1}", str_call_entry1, str_call_exit1))
+        
+        price_call := 0.0
+        price_call_time := 0
+        price_call_exit := 0.0
+        price_call_exit_time := 0
+        stoploss_call := 0.0
+        
+
+// stop loss PUT        
+if stoploss_put != 0.0 and close >= stoploss_put or is_in
+    
+    if price_put > 0.0
+        label.new(bar_index, high + 30, text=str.format("{0}", 'OK'), textcolor=color.white, color=put_color, size=size.tiny, style=label.style_triangledown)
+    
+        price_put_exit := close
+        price_put_exit_time := time
+        
+        // entry put
+        h_put1 = hour(price_put_time, "GMT-7")
+        str_h_put1 = str.format("{0}", h_put1)
+        if str.length(str_h_put1) == 1
+            str_h_put1 := str.format("0{0}", h_put1)
+        m_put1 = minute(price_put_time, "GMT-7")
+        str_m_put1 = str.format("{0}", m_put1)
+        if str.length(str_m_put1) == 1
+            str_m_put1 := str.format("0{0}", m_put1)
+        str_put_entry1 = str.format("{0}:{1} ${2}", str_h_put1, str_m_put1, price_put)
+        
+        
+        // exit put
+        h_exit_put1 = hour(price_put_exit_time, "GMT-7")
+        str_h_exit_put1 = str.format("{0}", h_exit_put1)
+        if str.length(str_h_exit_put1) == 1
+            str_h_exit_put1 := str.format("0{0}", h_exit_put1)
+        m_exit_put1 = minute(price_put_exit_time, "GMT-7")
+        str_m_exit_put1 = str.format("{0}", m_exit_put1)
+        if str.length(str_m_exit_put1) == 1
+            str_m_exit_put1 := str.format("0{0}", m_exit_put1)
+        str_put_exit1 = str.format("{0}:{1} ${2}\nG/L: ${3}", str_h_exit_put1, str_m_exit_put1, price_put_exit, price_put_exit-price_put)
+        
+        
+        array.push(gain_put_arr, str.format("Put: {0}\nExit: {1}", str_put_entry1, str_put_exit1))
+        
+        price_put := 0.0
+        price_put_time := 0
+        price_put_exit := 0.0
+        price_put_exit_time := 0
+        stoploss_put := 0.0
+        
+        
+if barstate.islast
+    // table summary
+    var table panel = table.new("bottom_right", 6, 30)
+    
+    table.cell(panel, 0, 1, "POINT AWAY FROM VWAP", bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left)
+    table.cell(panel, 1, 1, str.format("${0}", close - vwapValue), bgcolor = color.yellow, text_color=color.black, width=8, text_halign=text.align_left)    
+    
+    table.cell(panel, 0, 3, "POINT AWAY FROM VWAP LOW", bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left)
+    table.cell(panel, 1, 3, str.format("${0} {1}", close - lowerBandValue1, array.size(gain_call_arr)), bgcolor = color.yellow, text_color=color.black, width=8, text_halign=text.align_left)    
+    
+    table.cell(panel, 0, 5, "POINT AWAY FROM VWAP HIGH", bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left)
+    table.cell(panel, 1, 5, str.format("${0}", close - upperBandValue1), bgcolor = color.yellow, text_color=color.black, width=8, text_halign=text.align_left)    
+    
+    table.cell(panel, 0, 23, '', height=20, text_halign=text.align_left)
+    table.cell(panel, 1, 23, '', height=20, text_halign=text.align_left)    
+    
+    
+    // table backtest
+    var table panel2 = table.new("bottom_left", 100, 30)
+    if array.size(gain_call_arr) > 0
+        table.cell(panel2, 0, 1, 'CALL', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
+    if array.size(gain_put_arr) > 0
+        table.cell(panel2, 0, 2, 'PUT', bgcolor = color.orange, text_color=color.black, width=4, text_halign=text.align_left)
+            
+    if array.size(gain_call_arr) > 0
+        for k = 0 to array.size(gain_call_arr) - 1
+
+            if k%2 == 0
+                table.cell(panel2, k+1, 1, array.get(gain_call_arr, k), bgcolor = color.gray, text_color=color.black, width=8, text_halign=text.align_left, text_size=size.tiny)
+            else
+                table.cell(panel2, k+1, 1, array.get(gain_call_arr, k), bgcolor = color.green, text_color=color.black, width=8, text_halign=text.align_left, text_size=size.tiny)
+    if array.size(gain_put_arr) > 0
+        for j = 0 to array.size(gain_put_arr) - 1
+            if j%2 == 0
+                table.cell(panel2, j+1, 2, array.get(gain_put_arr, j), bgcolor = color.gray, text_color=color.black, width=8, text_halign=text.align_left, text_size=size.tiny)
+            else
+                table.cell(panel2, j+1, 2, array.get(gain_put_arr, j), bgcolor = color.green, text_color=color.black, width=8, text_halign=text.align_left, text_size=size.tiny)
+            
+    
+        
+
+
