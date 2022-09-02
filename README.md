@@ -1,3 +1,10 @@
+## IMPORTANT
+Belong to ticker, I set input IN and input OUT
+Backtest on ES: input IN = 5, input OUT = 3
+NQ: input IN = 15, input OUT = 12
+Enjoy daily trading Futures and if this script is good please me coffee (https://www.buymeacoffee.com/donaldit)
+or need implement a script donald.nguyen.it@gmail.com
+
 # trading-futures-tradingview-script
 I write pine script to trading futures ES1 NQ1 with signal IN (accurate 90%) and now I am trading on that
 ## Logic to trade futures
