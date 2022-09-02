@@ -169,7 +169,7 @@ s_now = second(timenow, "GMT-7")
 
 // check close is up vwap
 is_up_vwap = close[1] < vwapValue[1] and close > vwapValue or close[1] < vwapValue[1] and high > vwapValue and is_in
-is_down_vwap = close[2] > vwapValue[2] and close[1] > vwapValue[1] and close < vwapValue
+is_down_vwap = close[2] > vwapValue[2] and close[1] > vwapValue[1] and close < vwapValue or close[2] > upperBandValue1[2] and close[1] > upperBandValue1[1] and close < upperBandValue1
 
 var float price_call = 0.0
 var int price_call_time = 0
@@ -216,7 +216,7 @@ if price_put > 0.0
     
 
 // stop loss CALL        
-if stoploss_call != 0.0 and close <= stoploss_call or is_out
+if price_call > 0.0 and price_call >= close + 12 or stoploss_call != 0.0 and close <= stoploss_call or is_out
     
     if price_call > 0.0
         //label.new(bar_index, high + 30, text=str.format("{0}", 'OK'), textcolor=color.white, color=put_color, size=size.tiny, style=label.style_triangledown)
@@ -258,7 +258,7 @@ if stoploss_call != 0.0 and close <= stoploss_call or is_out
         
 
 // stop loss PUT        
-if stoploss_put != 0.0 and close >= stoploss_put or is_in
+if price_put > 0.0 and price_put <= close - 12 or stoploss_put != 0.0 and close >= stoploss_put or is_in
     
     if price_put > 0.0
         //label.new(bar_index, high + 30, text=str.format("{0}", 'OK'), textcolor=color.white, color=put_color, size=size.tiny, style=label.style_triangledown)
