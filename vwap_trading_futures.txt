@@ -1,5 +1,5 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © binance
+// © binancash
 
 //@version=5
 indicator("Snag - VWAP", overlay=true)
@@ -169,7 +169,7 @@ s_now = second(timenow, "GMT-7")
 
 // check close is up vwap
 is_up_vwap = close[1] < vwapValue[1] and close > vwapValue or close[1] < vwapValue[1] and high > vwapValue and is_in
-is_down_vwap = low[2] > upperBandValue1[2] and low[1] > upperBandValue1[1] and close < upperBandValue1 //or close[2] > vwapValue[2] and close[1] > vwapValue[1] and close < vwapValue or 
+is_down_vwap = low[2] > lowerBandValue1[2] and low[1] > lowerBandValue1[1] and close < lowerBandValue1 or low[2] > upperBandValue1[2] and low[1] > upperBandValue1[1] and close < upperBandValue1 or close[2] > vwapValue[2] and close[1] > vwapValue[1] and close < vwapValue
 
 var float price_call = 0.0
 var int price_call_time = 0
