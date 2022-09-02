@@ -287,7 +287,7 @@ if price_put > 0.0 and price_put <= close - 12 or stoploss_put != 0.0 and close 
         str_m_exit_put1 = str.format("{0}", m_exit_put1)
         if str.length(str_m_exit_put1) == 1
             str_m_exit_put1 := str.format("0{0}", m_exit_put1)
-        str_put_exit1 = str.format("{0}:{1} ${2}\nG/L: {3}", str_h_exit_put1, str_m_exit_put1, price_put_exit, price_put_exit-price_put)
+        str_put_exit1 = str.format("{0}:{1} ${2}\nG/L: {3}", str_h_exit_put1, str_m_exit_put1, price_put_exit, price_put - price_put_exit)
         
         
         array.push(gain_put_arr, str.format("Put: {0}\nExit: {1}", str_put_entry1, str_put_exit1))
