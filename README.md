@@ -3,7 +3,7 @@
 Belong to ticker and timeframe, I set input IN and input OUT
 Backtest on timeframe 5M
 * ES: input IN = 5, input OUT = 3
-* NQ: input IN = 15, input OUT = 12 or input IN = 8, input OUT = 8
+* NQ: input IN = 15, input OUT = 12 or input IN = 8, input OUT = 5
 
 Enjoy daily trading Futures and if this script is good please me coffee (https://www.buymeacoffee.com/donaldit)
 or need implement a script donald.nguyen.it@gmail.com
