@@ -5,7 +5,7 @@ Backtest on timeframe 5M
 * ES: input IN = 5, input OUT = 3
 * NQ: input IN = 15, input OUT = 12 or input IN = 8, input OUT = 5
 
-Enjoy daily trading Futures and if this script is good please me coffee (https://www.buymeacoffee.com/donaldit)
+Enjoy daily trading Futures and if this script is good please me coffee (https://www.patreon.com/donaldit)
 or need implement a script donald.nguyen.it@gmail.com
 
 # trading-futures-tradingview-script
