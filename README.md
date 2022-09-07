@@ -8,6 +8,12 @@ Backtest on timeframe 5M
 Enjoy daily trading Futures and if this script is good please me coffee (https://www.patreon.com/donaldit)
 or need implement a script donald.nguyen.it@gmail.com
 
+## Alert
+* I write some alert and can set webhook to get signal on Wordpress Plugin https://github.com/dearvn/tradingview-alerts
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/alert.png?raw=true "Alert")
+
+
 # trading-futures-tradingview-script
 I write pine script to trading futures ES1 NQ1 with signal IN (accurate 90%) and now I am trading on that
 ## Logic to trade futures
