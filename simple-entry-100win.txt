@@ -123,13 +123,24 @@ pl5 = plot(lev5, "level 5",  color = colorout, linewidth = 2)
 
 
 
+
 goLong = ta.crossover(lev0, lev2)
 goShort = ta.crossunder(lev0, lev2)
 
+var float call_price = 0.0
+var float put_price = 0.0
 if goLong
+    call_price := close
     label.new(bar_index, low-10, text=str.format("{0}", 'CALL'), textcolor=color.yellow, color=color.green, size=size.normal, style=label.style_triangleup)
 
+if call_price != 0.0 and lev0 < lev1 and lev0 > lev5
+    label.new(bar_index, high+30, text=str.format("EX-C {0}", close-call_price), textcolor=color.white, color=color.green, size=size.tiny, style=label.style_triangledown)
+    call_price := 0.0
+
 if goShort
-    label.new(bar_index, high+10, text=str.format("{0}", 'PUT'), textcolor=color.red, color=color.green, size=size.normal, style=label.style_triangledown)
+    put_price := close
+    label.new(bar_index, high+10, text=str.format("PUT{0} ", 'PUT'), textcolor=color.red, color=color.green, size=size.normal, style=label.style_triangledown)
 
-
+if put_price != 0.0 and lev0 < lev5
+    label.new(bar_index, low-30, text=str.format("EX-P {0}", put_price-close), textcolor=color.white, color=color.green, size=size.tiny, style=label.style_triangleup)
+    put_price := 0.0
