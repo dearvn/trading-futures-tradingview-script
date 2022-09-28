@@ -1,0 +1,531 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © binancash
+
+//@version=5
+indicator("Snag - Confirm Trend", overlay=true)
+
+pctHigh = input.float(title='Highest %', defval=10.0)
+pctLow = input.float(title='Lowest %', defval=-8.0)
+
+f_RoundUp(number, decimals) =>
+    factor = math.pow(10, decimals)
+    math.ceil(number * factor) / factor
+    
+f_nDecimals(_in) =>
+    n  = int(na), s = str.tostring(_in), p = str.pos(s, ".")
+    n := na(str.tonumber(s)) ? int(na) : na(p) ? 0 :
+     str.length(str.substring(s, p + 1))
+
+_n = f_nDecimals(close)
+
+// Trend Up Strong
+// Close Cross Up EMA 13, or Close Cross Up EMA 50 or Close Cross Up EMA 200
+// Mark as Begin Up Trend
+// Wait for EMA 13 Cross Up EMA 48 🡪 Confirm Strong Uptrend 🡪 BUY
+// EMA 48 CROSS UP EMA 200 🡪 STRONGER UPTREND
+// Trend Down Strong
+// Close Cross Down EMA 13, or Close Cross Down EMA 50 or Close Cross Down EMA 200
+// Mark as Begin Down Trend
+// Wait for EMA 13 Cross Down EMA 48 🡪 Confirm Strong Downtrend 🡪 SELL
+// EMA 48 CROSS DOWN EMA 200 🡪 STRONGER DOWNTREND
+
+wma13 = ta.wma(close, 13)
+plot(wma13, title="WMA13", color=color.blue)
+
+wma48 = ta.wma(close, 48)
+plot(wma48, title="WMA48", color=color.yellow)
+
+wma200 = ta.wma(close, 200)
+plot(wma200, title="WMA200", color=color.white)
+
+crossUpWMA13 = ta.crossover(close, wma13)
+crossDownWMA13 = ta.crossunder(close, wma13)
+crossUpWMA48 = ta.crossover(close, wma48)
+crossDownWMA48 = ta.crossunder(close, wma48)
+crossUpWMA200 = ta.crossover(close, wma200)
+crossDownWMA200 = ta.crossunder(close, wma200)
+
+crossUpWMA13_48 = ta.crossover(wma13, wma48)
+crossDownWMA13_48 = ta.crossunder(wma13, wma48)
+crossUpWMA48_200 = ta.crossover(wma48, wma200)
+crossDownWMA48_200 = ta.crossunder(wma48, wma200)
+
+var price_wmacrossup_arr = array.new_float()
+var price_wmacrossdown_arr = array.new_float()
+
+if crossUpWMA48_200
+    price_wmacrossdown_arr := array.new_float()
+    array.push(price_wmacrossup_arr, close)
+else if crossDownWMA48_200
+    price_wmacrossup_arr := array.new_float()
+    array.push(price_wmacrossdown_arr, close)
+        
+//price_up = 0.0
+//price_down = 0.0
+//if array.size(price_wmacrossup_arr) > 0
+//    price_up := array.get(price_wmacrossup_arr, array.size(price_wmacrossup_arr)-1)
+//else if array.size(price_wmacrossdown_arr) > 0
+//    price_down := array.get(price_wmacrossdown_arr, array.size(price_wmacrossdown_arr)-1)
+
+var bool isUpTrend = false
+var bool isDownTrend = false
+
+if crossUpWMA13 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+else if crossUpWMA48 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+else if crossUpWMA200 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+
+if crossDownWMA13 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+else if crossDownWMA48 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+else if crossDownWMA200 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+    
+var int trendUp = 0
+var int trendDown = 0
+
+txtMarkTrend = ''
+txtOrder = 'N/A'
+if isUpTrend
+    if crossUpWMA13_48
+        trendUp := 1
+        trendDown := 0
+    if crossUpWMA48_200
+        trendUp := 2
+        trendDown := 0
+        
+if isDownTrend
+    if crossDownWMA13_48
+        trendUp := 0
+        trendDown := 1
+    if crossDownWMA48_200
+        trendUp := 0
+        trendDown := 2
+        
+if isUpTrend
+    txtMarkTrend := 'Begin Up Trend'
+    if trendUp == 1
+        txtMarkTrend := 'Confirm Strong Uptrend'
+        txtOrder := 'BUY'
+    else if trendUp == 2
+        txtMarkTrend := 'STRONGER UPTREND'
+        txtOrder := 'BUY'
+
+else if isDownTrend
+    txtMarkTrend := 'Begin Down Trend'
+    if trendDown == 1
+        txtMarkTrend := 'Confirm Strong Downtrend'
+        txtOrder := 'SELL'
+    else if trendDown == 2
+        txtMarkTrend := 'STRONGER DOWNTREND'
+    txtOrder := 'SELL'
+    
+// setting % period
+pctTop = 5.0
+pctBottom = -5.0
+if str.format("{0}", timeframe.period) == '5'
+    pctTop := 2.5
+    pctBottom := -2.5
+    
+else if str.format("{0}", timeframe.period) == '180'
+    pctTop := 10.0
+    pctBottom := -10.0  
+
+else if str.format("{0}", timeframe.period) == 'D'
+    pctTop := 15.0
+    pctBottom := -15.0
+    
+txtBottom = ''
+txtTop = ''
+is_bottom_wma200 = false
+is_top_wma200 = false
+pct_low_wma200 = 0.0
+pct_high_wma200 = 0.0
+if low < wma200
+    pct_low_wma200 := f_RoundUp((low - wma200)/wma200*100, 2)
+    if pct_low_wma200 <= pctBottom
+        txtBottom := 'BOTTOM'
+        is_bottom_wma200 := true
+else if high > wma200
+    pct_high_wma200 := f_RoundUp((high - wma200)/wma200*100, 2)
+    
+    if pct_high_wma200 >= pctTop
+        txtTop := 'TOP'
+        is_top_wma200 := true
+
+// Alert CALL PUT
+var time_wmacrossup_arr = array.new_int()
+var time_wmacrossdown_arr = array.new_int()
+
+if trendUp == 1 or trendUp == 2
+    time_wmacrossdown_arr := array.new_int()
+    if array.size(time_wmacrossup_arr) == 0
+        array.push(time_wmacrossup_arr, time)
+else if trendDown == 1 or trendDown == 2
+    time_wmacrossup_arr := array.new_int()
+    if array.size(time_wmacrossdown_arr) == 0
+        array.push(time_wmacrossdown_arr, time)
+        
+is_alert_wmacrossup = false
+is_alert_wmacrossdown = false
+
+var has_wmacrossup_arr = array.new_bool()
+var has_wmacrossdown_arr = array.new_bool()
+
+if array.size(time_wmacrossup_arr) > 0
+    if time == array.get(time_wmacrossup_arr, array.size(time_wmacrossup_arr)-1)
+        is_alert_wmacrossup := true
+        array.push(has_wmacrossup_arr, true)
+else if array.size(time_wmacrossdown_arr) > 0
+    if time == array.get(time_wmacrossdown_arr, array.size(time_wmacrossdown_arr)-1)
+        is_alert_wmacrossdown := true
+        array.push(has_wmacrossdown_arr, true)
+        
+alertcondition(is_alert_wmacrossdown, title='ENTER PUT', message='Get out Call and Enter PUT')
+alertcondition(is_alert_wmacrossup, title='ENTER CALL', message='Get out Put and Enter CALL')
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// alert TOP - BOTTOM START
+var time_top_arr = array.new_int()
+var time_bottom_arr = array.new_int()
+
+if is_top_wma200
+    time_bottom_arr := array.new_int()
+    if array.size(time_top_arr) == 0
+        array.push(time_top_arr, time)
+else if is_bottom_wma200
+    time_top_arr := array.new_int()
+    if array.size(time_bottom_arr) == 0
+        array.push(time_bottom_arr, time)
+        
+is_alert_top = false
+is_alert_bottom = false
+
+var has_top_arr = array.new_bool()
+var has_bottom_arr = array.new_bool()
+
+if array.size(time_top_arr) > 0
+    if time == array.get(time_top_arr, array.size(time_top_arr)-1)
+        is_alert_top := true
+        array.push(has_top_arr, true)
+else if array.size(time_bottom_arr) > 0
+    if time == array.get(time_bottom_arr, array.size(time_bottom_arr)-1)
+        is_alert_bottom := true
+        array.push(has_bottom_arr, true)
+        
+alertcondition(is_alert_bottom, title='ENTER BOTTOM', message='BOTTOM - Get out PUT and Enter CALL')
+alertcondition(is_alert_top, title='ENTER TOP', message='TOP - Get out CALL and Enter PUT')
+// alert TOP - BOTTOM END
+/////////////////////////////////////////////////////////////////////////////////////////////
+// RSI
+rsi = ta.rsi(close, 9)
+rsiWMA = ta.wma(rsi, 125)
+cci = ta.cci(close, 10)
+
+////////////////////////////////BEGIN SUP RES
+// Time Frame 1 = TF1
+TF1 = timeframe.period
+stockschart = syminfo.type == 'stock'
+futureschart = syminfo.type == 'futures'
+indexchart = syminfo.type == 'index'
+
+f_resInMinutes() =>
+    if stockschart or futureschart or indexchart
+        _resInMinutes = timeframe.multiplier * (timeframe.isseconds ? 1. / 60 : timeframe.isminutes ? 1. : timeframe.isdaily ? 60. * 16 : timeframe.isweekly ? 60. * 7 * 5 : timeframe.ismonthly ? 60. * 7 * 21 : na)
+        _resInMinutes
+    else
+        _resInMinutes = timeframe.multiplier * (timeframe.isseconds ? 1. / 60 : timeframe.isminutes ? 1. : timeframe.isdaily ? 60. * 24 : timeframe.isweekly ? 60. * 24 * 7 : timeframe.ismonthly ? 60. * 24 * 30.4375 : na)
+        _resInMinutes
+
+f_tfResInMinutes(_res) =>
+    request.security(syminfo.tickerid, _res, f_resInMinutes())
+
+TF1InMinutes = f_tfResInMinutes(TF1)
+
+currentTFInMinutes = f_resInMinutes()
+chartOnLowerTF1 = currentTFInMinutes <= TF1InMinutes
+
+TF1_inH = str.tostring(TF1InMinutes / 60)
+TF1_text = if stockschart or futureschart
+    TF1InMinutes >= 60 and TF1InMinutes < 960 ? TF1_inH + 'h' : TF1InMinutes < 60 ? TF1 + 'm' : TF1
+else
+    TF1InMinutes >= 60 and TF1InMinutes < 1440 ? TF1_inH + 'h' : TF1InMinutes < 60 ? TF1 + 'm' : TF1
+
+barsinTF1 = TF1InMinutes / currentTFInMinutes
+
+TF1_bar_index = math.ceil(1 * barsinTF1)
+
+TF1_bar_index_range = math.ceil(3 * barsinTF1)
+
+var TF1_High_index =  math.abs(ta.highestbars(high, nz(TF1_bar_index_range, 1)))[TF1_bar_index] + TF1_bar_index
+var TF1_Low_index = math.abs(ta.lowestbars(low, nz(TF1_bar_index_range, 1)))[TF1_bar_index] + TF1_bar_index
+    
+if TF1_bar_index + TF1_bar_index_range > 4999
+    TF1_High_index := 4999
+    TF1_Low_index := 4999
+
+f_tfUp(_TF_High, _TF_Vol, _TF_VolMA) =>
+    _TF_High[3] > _TF_High[4] and _TF_High[4] > _TF_High[5] and _TF_High[2] < _TF_High[3] and _TF_High[1] < _TF_High[2] and _TF_Vol[3] > _TF_VolMA[3]
+
+f_tfDown(_TF_Low, _TF_Vol, _TF_VolMA) =>
+    _TF_Low[3] < _TF_Low[4] and _TF_Low[4] < _TF_Low[5] and _TF_Low[2] > _TF_Low[3] and _TF_Low[1] > _TF_Low[2] and _TF_Vol[3] > _TF_VolMA[3]
+
+f_tfSources(_res, _source) =>
+    request.security(syminfo.tickerid, _res, _source)
+
+// S/R  = Time Frame 1 = TF1
+TF1_Vol = f_tfSources(TF1, volume)
+TF1_VolMA = ta.wma(TF1_Vol, 6)
+TF1_High = f_tfSources(TF1, high)
+TF1_Low = f_tfSources(TF1, low)
+TF1_Open = f_tfSources(TF1, open)
+TF1_Close = f_tfSources(TF1, close)
+
+TF1_Up = f_tfUp(TF1_High, TF1_Vol, TF1_VolMA)
+TF1_Down = f_tfDown(TF1_Low, TF1_Vol, TF1_VolMA)
+
+TF1_CalcFractalUp() =>
+    TF1_FractalUp = 0.0
+    TF1_FractalUp := TF1_Up ? TF1_High[3] : TF1_FractalUp[1]
+    TF1_FractalUp
+
+TF1_CalcFractalDown() =>
+    TF1_FractalDown = 0.0
+    TF1_FractalDown := TF1_Down ? TF1_Low[3] : TF1_FractalDown[1]
+    TF1_FractalDown
+
+TF1_FractalUp = request.security(syminfo.tickerid, TF1, TF1_CalcFractalUp())
+TF1_FractalDown = request.security(syminfo.tickerid, TF1, TF1_CalcFractalDown())
+
+// Zones - Current Time Frame = Time Frame 1 = TF1
+// Fractal Up Zones
+TF1_CalcFractalUpZone() =>
+    TF1_FractalUpZone = 0.0
+    TF1_FractalUpZone := TF1_Up and TF1_Close[3] >= TF1_Open[3] ? TF1_Close[3] : TF1_Up and TF1_Close[3] < TF1_Open[3] ? TF1_Open[3] : TF1_FractalUpZone[1]
+    TF1_FractalUpZone
+
+TF1_FractalUpZone = request.security(syminfo.tickerid, TF1, TF1_CalcFractalUpZone())
+TF1_ResistanceZone = TF1_FractalUpZone
+
+// Fractal Down Zones
+TF1_CalcFractalDownZone() =>
+    TF1_FractalDownZone = 0.0
+    TF1_FractalDownZone := TF1_Down and TF1_Close[3] >= TF1_Open[3] ? TF1_Open[3] : TF1_Down and TF1_Close[3] < TF1_Open[3] ? TF1_Close[3] : TF1_FractalDownZone[1]
+    TF1_FractalDownZone
+
+TF1_FractalDownZone = request.security(syminfo.tickerid, TF1, TF1_CalcFractalDownZone())
+TF1_SupportZone = TF1_FractalDownZone
+//////////////////////////////////END SUP RES
+
+
+/////////////////////////////////BEGIN cross
+bigdrop = rsi + 8 < rsi[1] and close > wma48
+var int cnt_bigdrop = 0
+var int cnt_bottomsupport = 0
+var int side_away = 0
+var int cnt_up = 0
+var int cnt_down = 0
+if bigdrop
+    cnt_bigdrop := cnt_bigdrop + 1
+    cnt_bottomsupport := 0
+    side_away := 0
+    cnt_up := 0
+    cnt_down := 0
+
+plotshape(bigdrop, title="Big Drop", style=shape.square, location=location.abovebar, color=color.white, size=size.tiny)
+
+bottomsupport = close > TF1_SupportZone[0] and close > close[1] and rsi > rsi[1] + 10 
+if bottomsupport
+    cnt_bigdrop := 0
+    cnt_bottomsupport := cnt_bottomsupport + 1
+    side_away := 0
+    cnt_up := 0
+    cnt_down := 0
+plotshape(bottomsupport, title="Big Bottom", style=shape.xcross, location=location.belowbar, color=color.yellow, size=size.tiny)
+
+if close > close[1] and close[1] > close[2]
+    cnt_down := 0
+    cnt_up := cnt_up + 1
+    if cnt_bigdrop > 0
+        cnt_bigdrop := 0
+        side_away := side_away + 1
+    
+    
+if close < close[1] and close[1] < close[2]
+    cnt_up := 0
+    cnt_down := cnt_down + 1
+    if cnt_bottomsupport > 0
+        cnt_bottomsupport := 0
+        side_away := side_away + 1
+    
+    
+if cnt_down > 1
+    side_away := 0
+    cnt_bigdrop := cnt_bigdrop + 1
+    
+if cnt_up > 1
+    side_away := 0
+    cnt_bottomsupport := cnt_bottomsupport + 1
+//cci = ta.cci(close, 28)
+
+f_supertrend(Factor, Pd) =>
+
+    Up=hl2-(Factor*ta.atr(Pd))
+    Dn=hl2+(Factor*ta.atr(Pd))
+    
+    TrendUp = 0.0
+    TrendUp := cci[1] > 0 ? math.max(Up,TrendUp[1]) : Up
+    TrendDown = 0.0
+    TrendDown := cci[1]< 0 ? math.min(Dn,TrendDown[1]) : Dn
+    Trend = 0.0
+    Trend := cnt_bottomsupport > 1 ? 1: cnt_bigdrop > 1 ? -1: nz(Trend[1],1)
+    Tsl = Trend==1? TrendUp: TrendDown
+
+    Tsl
+
+st_tsl = f_supertrend(1, 1)
+
+// Plot the ST
+linecolor = close >= st_tsl ? color.blue : color.gray
+plot(st_tsl, color = linecolor , linewidth = 4,title = "Trend")
+
+
+// Alert Exit CALL PUT
+var time_exitup_arr = array.new_int()
+var time_exitdown_arr = array.new_int()
+
+if bigdrop
+    time_exitdown_arr := array.new_int()
+    if array.size(time_exitup_arr) == 0
+        array.push(time_exitup_arr, time)
+else if bottomsupport
+    time_exitup_arr := array.new_int()
+    if array.size(time_exitdown_arr) == 0
+        array.push(time_exitdown_arr, time)
+        
+is_alert_exitup = false
+is_alert_exitdown = false
+
+if array.size(time_exitup_arr) > 0 and array.size(has_wmacrossup_arr) > 0
+    if time == array.get(time_exitup_arr, array.size(time_exitup_arr)-1)
+        is_alert_exitup := true
+        has_wmacrossup_arr := array.new_bool()
+else if array.size(time_exitdown_arr) > 0 and array.size(has_wmacrossdown_arr) > 0 
+    if time == array.get(time_exitdown_arr, array.size(time_exitdown_arr)-1)
+        is_alert_exitdown := true
+        has_wmacrossdown_arr := array.new_bool()
+        
+alertcondition(is_alert_exitdown, title='EXIT PUT', message='Exit PUT')
+alertcondition(is_alert_exitup, title='EXIT CALL', message='Exit CALL')
+
+
+fast_length = 12
+slow_length = 26
+signal_length = 9
+fast_ma = ta.ema(close, fast_length)
+slow_ma = ta.ema(close, slow_length)
+macd = fast_ma - slow_ma
+signal = ta.ema(macd, signal_length)
+macd_crossover = ta.crossover(macd, -40)
+var bool is_macd_corssover = false
+var bool is_macd_corssunder = false
+if macd_crossover
+    is_macd_corssover := true
+    is_macd_corssunder := false
+    
+macd_crossunder = ta.crossunder(macd, 55)
+if macd_crossunder
+    is_macd_corssover := false
+    is_macd_corssunder := true
+    
+highest = ta.highest(high, 48)
+pct_low = f_RoundUp((close - highest)/highest*100, 2)
+var bool is_lowest = false
+var bool is_highest = false
+if pct_low <= pctLow and close < wma200
+    pct_lowest = f_RoundUp((close - wma200)/wma200*100, 2)
+    if pct_lowest <= pctBottom and is_macd_corssover
+        is_lowest := true
+        is_highest := false
+if close > wma200
+    is_lowest := false
+is_bottom = false
+if is_lowest and bottomsupport
+    is_bottom := true
+plotshape(is_bottom, title="Bottom", style=shape.diamond, location=location.belowbar, color=color.yellow, size=size.tiny)
+
+lowest = ta.lowest(low, 48)
+pct_high = f_RoundUp((close - lowest)/lowest*100, 2)
+if pct_high >= pctHigh and close > wma200
+    pct_highest = f_RoundUp((close - wma200)/wma200*100, 2)
+    if pct_highest >= pctTop and is_macd_corssunder
+        is_highest := true
+        is_lowest := false
+//if close < wma200
+//    is_highest := false
+is_top = false
+if is_highest and bigdrop
+    is_top := true
+plotshape(is_top, title="TOP", style=shape.diamond, location=location.abovebar, color=color.white, size=size.tiny)
+
+
+bg_clr = color.yellow
+if timenow%2 == 0
+    bg_clr := color.orange
+
+if barstate.islast
+    var table panel = table.new("bottom_right", 6, 30)
+
+    if side_away > 0
+        table.cell(panel, 0, 1, "DON'T PUT", bgcolor = bg_clr, text_color=color.black, width=20, text_halign=text.align_left, text_size=size.huge)
+        table.cell(panel, 1, 1, "DON'T CALL", bgcolor = bg_clr, text_color=color.black, width=25, text_halign=text.align_left, text_size=size.huge)    
+    
+    if cnt_bottomsupport == 1
+        table.cell(panel, 0, 1, "DON'T PUT", bgcolor = bg_clr, text_color=color.black, width=20, text_halign=text.align_left, text_size=size.huge)
+        table.cell(panel, 1, 1, " -> READY TO CALL", bgcolor = bg_clr, text_color=color.black, width=25, text_halign=text.align_left, text_size=size.huge)    
+    if cnt_bottomsupport > 1
+        table.cell(panel, 0, 1, "DON'T PUT", bgcolor = bg_clr, text_color=color.black, width=20, text_halign=text.align_left, text_size=size.huge)
+        table.cell(panel, 1, 1, " -> LET CALL", bgcolor = bg_clr, text_color=color.black, width=25, text_halign=text.align_left, text_size=size.huge)    
+    
+    if cnt_bigdrop == 1
+        table.cell(panel, 0, 1, "DON'T CALL", bgcolor = bg_clr, text_color=color.black, width=20, text_halign=text.align_left, text_size=size.huge)
+        table.cell(panel, 1, 1, " -> READY TO PUT", bgcolor = bg_clr, text_color=color.black, width=25, text_halign=text.align_left, text_size=size.huge)    
+    if cnt_bigdrop > 1
+        table.cell(panel, 0, 1, "DON'T CALL", bgcolor = bg_clr, text_color=color.black, width=20, text_halign=text.align_left, text_size=size.huge)
+        table.cell(panel, 1, 1, " -> LET PUT", bgcolor = bg_clr, text_color=color.black, width=25, text_halign=text.align_left, text_size=size.huge)    
+    
+    
+    table.cell(panel, 0, 2, "TREND", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+    table.cell(panel, 1, 2, txtMarkTrend, bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left)    
+    
+    if low < wma200
+        table.cell(panel, 0, 3, "EMA200%", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 3, str.format("{0}%   {1}", pct_low_wma200, txtBottom), bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left) 
+    
+        predictBottomPrice = wma200 + pctBottom/100*wma200
+        table.cell(panel, 0, 4, "PREDICT BOTTOM PRICE", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 4, str.format("{0}", predictBottomPrice), bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left)    
+    
+    else if high > wma200
+        table.cell(panel, 0, 3, "EMA200%", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 3, str.format("{0}%   {1}", pct_high_wma200, txtTop), bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left) 
+    
+        predictTopPrice = wma200 + pctTop/100*wma200
+        table.cell(panel, 0, 4, "PREDICT TOP PRICE", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 4, str.format("{0}", predictTopPrice), bgcolor = color.yellow, text_color=color.black, width=20, text_halign=text.align_left) 
+    
+    
+    
+    
+
+
