@@ -8,6 +8,12 @@ Backtest on timeframe 5M
 Enjoy daily trading Futures and if this script is good please me coffee (https://www.patreon.com/donaldit)
 or need implement a script donald.nguyen.it@gmail.com
 
+## MARKET CRASH
+* I implement logic to trade when market crash this time
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/win100.png?raw=true "WIN100%")
+
+
 ## Alert
 * I write some alert and can set webhook to get signal on Wordpress Plugin https://github.com/dearvn/tradingview-alerts
 
