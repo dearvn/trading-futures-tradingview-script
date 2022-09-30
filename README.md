@@ -1,3 +1,7 @@
+## SUPORT ME
+
+I like a cup of coffee at https://www.patreon.com/donaldit
+
 ## IMPORTANT
 * Currently, I am trading on ```trade-futures.txt``` script
 Belong to ticker and timeframe, I set input IN and input OUT
