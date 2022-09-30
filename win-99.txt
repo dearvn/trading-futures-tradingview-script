@@ -1,0 +1,655 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © binancash
+
+//@version=5
+indicator("Snag - NEW SWING FAST", overlay=true)
+
+pctHigh = input.float(title='Highest %', defval=10.0)
+pctLow = input.float(title='Lowest %', defval=-8.0)
+
+f_RoundUp(number, decimals) =>
+    factor = math.pow(10, decimals)
+    math.ceil(number * factor) / factor
+    
+f_nDecimals(_in) =>
+    n  = int(na), s = str.tostring(_in), p = str.pos(s, ".")
+    n := na(str.tonumber(s)) ? int(na) : na(p) ? 0 :
+     str.length(str.substring(s, p + 1))
+
+_n = f_nDecimals(close)
+
+// Trend Up Strong
+// Close Cross Up EMA 13, or Close Cross Up EMA 50 or Close Cross Up EMA 200
+// Mark as Begin Up Trend
+// Wait for EMA 13 Cross Up EMA 48 🡪 Confirm Strong Uptrend 🡪 BUY
+// EMA 48 CROSS UP EMA 200 🡪 STRONGER UPTREND
+// Trend Down Strong
+// Close Cross Down EMA 13, or Close Cross Down EMA 50 or Close Cross Down EMA 200
+// Mark as Begin Down Trend
+// Wait for EMA 13 Cross Down EMA 48 🡪 Confirm Strong Downtrend 🡪 SELL
+// EMA 48 CROSS DOWN EMA 200 🡪 STRONGER DOWNTREND
+
+wma11 = ta.wma(close, 11)
+plot(wma11, title="WMA11", color=color.blue)
+
+wma48 = ta.wma(close, 48)
+plot(wma48, title="WMA48", color=color.yellow)
+
+wma200 = ta.wma(close, 200)
+plot(wma200, title="WMA200", color=color.white)
+
+crossUpWMA13 = ta.crossover(close, wma11)
+crossDownWMA13 = ta.crossunder(close, wma11)
+crossUpWMA48 = ta.crossover(close, wma48)
+crossDownWMA48 = ta.crossunder(close, wma48)
+crossUpWMA200 = ta.crossover(close, wma200)
+crossDownWMA200 = ta.crossunder(close, wma200)
+
+crossUpWMA13_48 = ta.crossover(wma11, wma48)
+crossDownWMA13_48 = ta.crossunder(wma11, wma48)
+crossUpWMA48_200 = ta.crossover(wma48, wma200)
+crossDownWMA48_200 = ta.crossunder(wma48, wma200)
+
+var price_wmacrossup_arr = array.new_float()
+var price_wmacrossdown_arr = array.new_float()
+
+if crossUpWMA48_200
+    price_wmacrossdown_arr := array.new_float()
+    array.push(price_wmacrossup_arr, close)
+else if crossDownWMA48_200
+    price_wmacrossup_arr := array.new_float()
+    array.push(price_wmacrossdown_arr, close)
+        
+//price_up = 0.0
+//price_down = 0.0
+//if array.size(price_wmacrossup_arr) > 0
+//    price_up := array.get(price_wmacrossup_arr, array.size(price_wmacrossup_arr)-1)
+//else if array.size(price_wmacrossdown_arr) > 0
+//    price_down := array.get(price_wmacrossdown_arr, array.size(price_wmacrossdown_arr)-1)
+
+var bool isUpTrend = false
+var bool isDownTrend = false
+
+if crossUpWMA13 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+else if crossUpWMA48 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+else if crossUpWMA200 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+
+if crossDownWMA13 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+else if crossDownWMA48 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+else if crossDownWMA200 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+    
+var int trendUp = 0
+var int trendDown = 0
+
+txtMarkTrend = ''
+txtOrder = 'N/A'
+if isUpTrend
+    if crossUpWMA13_48
+        trendUp := 1
+        trendDown := 0
+    if crossUpWMA48_200
+        trendUp := 2
+        trendDown := 0
+        
+if isDownTrend
+    if crossDownWMA13_48
+        trendUp := 0
+        trendDown := 1
+    if crossDownWMA48_200
+        trendUp := 0
+        trendDown := 2
+        
+if isUpTrend
+    txtMarkTrend := 'Begin Up Trend'
+    if trendUp == 1
+        txtMarkTrend := 'Confirm Strong Uptrend'
+        txtOrder := 'BUY'
+    else if trendUp == 2
+        txtMarkTrend := 'STRONGER UPTREND'
+        txtOrder := 'BUY'
+
+else if isDownTrend
+    txtMarkTrend := 'Begin Down Trend'
+    if trendDown == 1
+        txtMarkTrend := 'Confirm Strong Downtrend'
+        txtOrder := 'SELL'
+    else if trendDown == 2
+        txtMarkTrend := 'STRONGER DOWNTREND'
+    txtOrder := 'SELL'
+    
+// setting % period
+pctTop = 5.0
+pctBottom = -5.0
+if str.format("{0}", timeframe.period) == '5'
+    pctTop := 2.5
+    pctBottom := -2.5
+    
+else if str.format("{0}", timeframe.period) == '180'
+    pctTop := 10.0
+    pctBottom := -10.0  
+
+else if str.format("{0}", timeframe.period) == 'D'
+    pctTop := 15.0
+    pctBottom := -15.0
+    
+txtBottom = ''
+txtTop = ''
+is_bottom_wma200 = false
+is_top_wma200 = false
+pct_low_wma200 = 0.0
+pct_high_wma200 = 0.0
+if low < wma200
+    pct_low_wma200 := f_RoundUp((low - wma200)/wma200*100, 2)
+    if pct_low_wma200 <= pctBottom
+        txtBottom := 'BOTTOM'
+        is_bottom_wma200 := true
+else if high > wma200
+    pct_high_wma200 := f_RoundUp((high - wma200)/wma200*100, 2)
+    
+    if pct_high_wma200 >= pctTop
+        txtTop := 'TOP'
+        is_top_wma200 := true
+
+    
+// Alert CALL PUT
+var time_wmacrossup_arr = array.new_int()
+var time_wmacrossdown_arr = array.new_int()
+
+if trendUp == 1 or trendUp == 2
+    time_wmacrossdown_arr := array.new_int()
+    if array.size(time_wmacrossup_arr) == 0
+        array.push(time_wmacrossup_arr, time)
+else if trendDown == 1 or trendDown == 2
+    time_wmacrossup_arr := array.new_int()
+    if array.size(time_wmacrossdown_arr) == 0
+        array.push(time_wmacrossdown_arr, time)
+        
+is_alert_wmacrossup = false
+is_alert_wmacrossdown = false
+
+var has_wmacrossup_arr = array.new_bool()
+var has_wmacrossdown_arr = array.new_bool()
+
+if array.size(time_wmacrossup_arr) > 0
+    if time == array.get(time_wmacrossup_arr, array.size(time_wmacrossup_arr)-1)
+        is_alert_wmacrossup := true
+        array.push(has_wmacrossup_arr, true)
+else if array.size(time_wmacrossdown_arr) > 0
+    if time == array.get(time_wmacrossdown_arr, array.size(time_wmacrossdown_arr)-1)
+        is_alert_wmacrossdown := true
+        array.push(has_wmacrossdown_arr, true)
+        
+alertcondition(is_alert_wmacrossdown, title='ENTER PUT', message='Get out Call and Enter PUT')
+alertcondition(is_alert_wmacrossup, title='ENTER CALL', message='Get out Put and Enter CALL')
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// alert TOP - BOTTOM START
+var time_top_arr = array.new_int()
+var time_bottom_arr = array.new_int()
+
+if is_top_wma200
+    time_bottom_arr := array.new_int()
+    if array.size(time_top_arr) == 0
+        array.push(time_top_arr, time)
+else if is_bottom_wma200
+    time_top_arr := array.new_int()
+    if array.size(time_bottom_arr) == 0
+        array.push(time_bottom_arr, time)
+        
+is_alert_top = false
+is_alert_bottom = false
+
+var has_top_arr = array.new_bool()
+var has_bottom_arr = array.new_bool()
+
+if array.size(time_top_arr) > 0
+    if time == array.get(time_top_arr, array.size(time_top_arr)-1)
+        is_alert_top := true
+        array.push(has_top_arr, true)
+else if array.size(time_bottom_arr) > 0
+    if time == array.get(time_bottom_arr, array.size(time_bottom_arr)-1)
+        is_alert_bottom := true
+        array.push(has_bottom_arr, true)
+        
+alertcondition(is_alert_bottom, title='ENTER BOTTOM', message='BOTTOM - Get out PUT and Enter CALL')
+alertcondition(is_alert_top, title='ENTER TOP', message='TOP - Get out CALL and Enter PUT')
+// alert TOP - BOTTOM END
+/////////////////////////////////////////////////////////////////////////////////////////////
+// RSI
+rsi = ta.rsi(close, 9)
+rsiWMA = ta.wma(rsi, 125)
+cci = ta.cci(close, 10)
+
+////////////////////////////////BEGIN SUP RES
+// Time Frame 1 = TF1
+TF1 = timeframe.period
+stockschart = syminfo.type == 'stock'
+futureschart = syminfo.type == 'futures'
+indexchart = syminfo.type == 'index'
+
+f_resInMinutes() =>
+    if stockschart or futureschart or indexchart
+        _resInMinutes = timeframe.multiplier * (timeframe.isseconds ? 1. / 60 : timeframe.isminutes ? 1. : timeframe.isdaily ? 60. * 16 : timeframe.isweekly ? 60. * 7 * 5 : timeframe.ismonthly ? 60. * 7 * 21 : na)
+        _resInMinutes
+    else
+        _resInMinutes = timeframe.multiplier * (timeframe.isseconds ? 1. / 60 : timeframe.isminutes ? 1. : timeframe.isdaily ? 60. * 24 : timeframe.isweekly ? 60. * 24 * 7 : timeframe.ismonthly ? 60. * 24 * 30.4375 : na)
+        _resInMinutes
+
+f_tfResInMinutes(_res) =>
+    request.security(syminfo.tickerid, _res, f_resInMinutes())
+
+TF1InMinutes = f_tfResInMinutes(TF1)
+
+currentTFInMinutes = f_resInMinutes()
+chartOnLowerTF1 = currentTFInMinutes <= TF1InMinutes
+
+TF1_inH = str.tostring(TF1InMinutes / 60)
+TF1_text = if stockschart or futureschart
+    TF1InMinutes >= 60 and TF1InMinutes < 960 ? TF1_inH + 'h' : TF1InMinutes < 60 ? TF1 + 'm' : TF1
+else
+    TF1InMinutes >= 60 and TF1InMinutes < 1440 ? TF1_inH + 'h' : TF1InMinutes < 60 ? TF1 + 'm' : TF1
+
+barsinTF1 = TF1InMinutes / currentTFInMinutes
+
+TF1_bar_index = math.ceil(1 * barsinTF1)
+
+TF1_bar_index_range = math.ceil(3 * barsinTF1)
+
+var TF1_High_index =  math.abs(ta.highestbars(high, nz(TF1_bar_index_range, 1)))[TF1_bar_index] + TF1_bar_index
+var TF1_Low_index = math.abs(ta.lowestbars(low, nz(TF1_bar_index_range, 1)))[TF1_bar_index] + TF1_bar_index
+    
+if TF1_bar_index + TF1_bar_index_range > 4999
+    TF1_High_index := 4999
+    TF1_Low_index := 4999
+
+f_tfUp(_TF_High, _TF_Vol, _TF_VolMA) =>
+    _TF_High[3] > _TF_High[4] and _TF_High[4] > _TF_High[5] and _TF_High[2] < _TF_High[3] and _TF_High[1] < _TF_High[2] and _TF_Vol[3] > _TF_VolMA[3]
+
+f_tfDown(_TF_Low, _TF_Vol, _TF_VolMA) =>
+    _TF_Low[3] < _TF_Low[4] and _TF_Low[4] < _TF_Low[5] and _TF_Low[2] > _TF_Low[3] and _TF_Low[1] > _TF_Low[2] and _TF_Vol[3] > _TF_VolMA[3]
+
+f_tfSources(_res, _source) =>
+    request.security(syminfo.tickerid, _res, _source)
+
+// S/R  = Time Frame 1 = TF1
+TF1_Vol = f_tfSources(TF1, volume)
+TF1_VolMA = ta.wma(TF1_Vol, 6)
+TF1_High = f_tfSources(TF1, high)
+TF1_Low = f_tfSources(TF1, low)
+TF1_Open = f_tfSources(TF1, open)
+TF1_Close = f_tfSources(TF1, close)
+
+TF1_Up = f_tfUp(TF1_High, TF1_Vol, TF1_VolMA)
+TF1_Down = f_tfDown(TF1_Low, TF1_Vol, TF1_VolMA)
+
+TF1_CalcFractalUp() =>
+    TF1_FractalUp = 0.0
+    TF1_FractalUp := TF1_Up ? TF1_High[3] : TF1_FractalUp[1]
+    TF1_FractalUp
+
+TF1_CalcFractalDown() =>
+    TF1_FractalDown = 0.0
+    TF1_FractalDown := TF1_Down ? TF1_Low[3] : TF1_FractalDown[1]
+    TF1_FractalDown
+
+TF1_FractalUp = request.security(syminfo.tickerid, TF1, TF1_CalcFractalUp())
+TF1_FractalDown = request.security(syminfo.tickerid, TF1, TF1_CalcFractalDown())
+
+// Zones - Current Time Frame = Time Frame 1 = TF1
+// Fractal Up Zones
+TF1_CalcFractalUpZone() =>
+    TF1_FractalUpZone = 0.0
+    TF1_FractalUpZone := TF1_Up and TF1_Close[3] >= TF1_Open[3] ? TF1_Close[3] : TF1_Up and TF1_Close[3] < TF1_Open[3] ? TF1_Open[3] : TF1_FractalUpZone[1]
+    TF1_FractalUpZone
+
+TF1_FractalUpZone = request.security(syminfo.tickerid, TF1, TF1_CalcFractalUpZone())
+TF1_ResistanceZone = TF1_FractalUpZone
+
+// Fractal Down Zones
+TF1_CalcFractalDownZone() =>
+    TF1_FractalDownZone = 0.0
+    TF1_FractalDownZone := TF1_Down and TF1_Close[3] >= TF1_Open[3] ? TF1_Open[3] : TF1_Down and TF1_Close[3] < TF1_Open[3] ? TF1_Close[3] : TF1_FractalDownZone[1]
+    TF1_FractalDownZone
+
+TF1_FractalDownZone = request.security(syminfo.tickerid, TF1, TF1_CalcFractalDownZone())
+TF1_SupportZone = TF1_FractalDownZone
+//////////////////////////////////END SUP RES
+
+
+/////////////////////////////////BEGIN cross
+bigdrop = rsi + 8 < rsi[1] and close > wma48
+plotshape(bigdrop, title="Big Drop", style=shape.square, location=location.abovebar, color=color.white, size=size.tiny)
+
+bottomsupport = close > TF1_SupportZone[0] and close > close[1] and rsi > rsi[1] + 10 
+plotshape(bottomsupport, title="Big Bottom", style=shape.xcross, location=location.belowbar, color=color.yellow, size=size.tiny)
+
+
+// Alert Exit CALL PUT
+var time_exitup_arr = array.new_int()
+var time_exitdown_arr = array.new_int()
+
+if bigdrop
+    time_exitdown_arr := array.new_int()
+    if array.size(time_exitup_arr) == 0
+        array.push(time_exitup_arr, time)
+else if bottomsupport
+    time_exitup_arr := array.new_int()
+    if array.size(time_exitdown_arr) == 0
+        array.push(time_exitdown_arr, time)
+        
+is_alert_exitup = false
+is_alert_exitdown = false
+
+if array.size(time_exitup_arr) > 0 and array.size(has_wmacrossup_arr) > 0
+    if time == array.get(time_exitup_arr, array.size(time_exitup_arr)-1)
+        is_alert_exitup := true
+        has_wmacrossup_arr := array.new_bool()
+else if array.size(time_exitdown_arr) > 0 and array.size(has_wmacrossdown_arr) > 0 
+    if time == array.get(time_exitdown_arr, array.size(time_exitdown_arr)-1)
+        is_alert_exitdown := true
+        has_wmacrossdown_arr := array.new_bool()
+        
+alertcondition(is_alert_exitdown, title='EXIT PUT', message='Exit PUT')
+alertcondition(is_alert_exitup, title='EXIT CALL', message='Exit CALL')
+
+
+fast_length = 12
+slow_length = 26
+signal_length = 9
+fast_ma = ta.ema(close, fast_length)
+slow_ma = ta.ema(close, slow_length)
+macd = fast_ma - slow_ma
+signal = ta.ema(macd, signal_length)
+macd_crossover = ta.crossover(macd, -40)
+var bool is_macd_corssover = false
+var bool is_macd_corssunder = false
+if macd_crossover
+    is_macd_corssover := true
+    is_macd_corssunder := false
+    
+macd_crossunder = ta.crossunder(macd, 55)
+if macd_crossunder
+    is_macd_corssover := false
+    is_macd_corssunder := true
+    
+highest = ta.highest(high, 48)
+pct_low = f_RoundUp((close - highest)/highest*100, 2)
+var bool is_lowest = false
+var bool is_highest = false
+if pct_low <= pctLow and close < wma200
+    pct_lowest = f_RoundUp((close - wma200)/wma200*100, 2)
+    if pct_lowest <= pctBottom and is_macd_corssover
+        is_lowest := true
+        is_highest := false
+if close > wma200
+    is_lowest := false
+is_bottom = false
+if is_lowest and bottomsupport
+    is_bottom := true
+plotshape(is_bottom, title="Bottom", style=shape.diamond, location=location.belowbar, color=color.yellow, size=size.tiny)
+
+lowest = ta.lowest(low, 48)
+pct_high = f_RoundUp((close - lowest)/lowest*100, 2)
+if pct_high >= pctHigh and close > wma200
+    pct_highest = f_RoundUp((close - wma200)/wma200*100, 2)
+    if pct_highest >= pctTop and is_macd_corssunder
+        is_highest := true
+        is_lowest := false
+//if close < wma200
+//    is_highest := false
+is_top = false
+if is_highest and bigdrop
+    is_top := true
+plotshape(is_top, title="TOP", style=shape.diamond, location=location.abovebar, color=color.white, size=size.tiny)
+
+
+
+// UPTREND
+bool check_gap              = input.bool(title = "Gap Size Filter",  defval = true)
+float gap                   = input.float(title = "Gap Size", defval = 0.05, minval = 0.01, maxval = 0.5)
+bool check_strong_trend     = input.bool(title = "Strong Trend Filter", defval = true)
+bool check_upward_trend     = input.bool(title = "Upward Trend Filter", defval = true)
+
+// -- inline function(s)
+uptrend(opens, closes, len, total) => 
+    count = 0
+    for i = 0 to (len - 1)
+        if (opens[i] < closes[i])
+            count := count + 1
+    flag = count >= total
+    flag
+
+// -- study logic and calculation(s)
+src2 = true                                                              // initializing a series
+src2 := src2 and (close[1] > open[1])                                     // checks if previous candle is a bullish candle
+src2 := src2 and (open > close)                                           // checks if current candle is a bearish candle
+src2 := src2 and (open > close[1])                                        // checks if current candle open is greater than previous bullish candle close
+src2 := src2 and (close < (open[1] - ((open[1] - close[1]) / 2.0)))       // checks if current candle close is below mid line of previous candle
+
+// these filters are applied to reduce noises
+if (check_gap)                                                          //
+    src2 := src2 and (math.abs(open - close[1]) > (gap * math.abs(open - close)))   // checks if there is a gap between previous candle close and current candle open
+if (check_strong_trend)                                                 //
+    src2 := src2 and (math.abs(open[1] - close[1]) > math.abs(open - close))        // checks if previous bullish candle is strong enough
+if (check_upward_trend)                                                 //
+    src2 := src2 and uptrend(open[1], close[1], 3, 2)                     // checks if previous candle belongs to a series of up trend candles
+
+plotshape(src2, title = "Dark Cloud Cover", location = location.abovebar, color = color.yellow, style = shape.arrowdown, text = "D")
+
+    
+// Bullish
+length = input(21)
+//------------------------------------------------------------------------------
+o = open[length],h = high[length]
+l = low[length],c = close[length]
+//------------------------------------------------------------------------------
+ph = ta.pivothigh(close,length,length)
+pl = ta.pivotlow(open,length,length)
+valH = ta.valuewhen(ph,c,0)
+valL = ta.valuewhen(pl,c,0)
+valpH = ta.valuewhen(ph,c,1)
+valpL = ta.valuewhen(pl,c,1)
+//------------------------------------------------------------------------------
+d = math.abs(c - o)
+hammer = pl and math.min(o,c) - l > d and h - math.max(c,o) < d
+ihammer = pl and h - math.max(c,o) > d and math.min(c,o) - l < d
+bulleng = c > o and c[1] < o[1] and c > o[1] and o < c[1]
+hanging = ph and math.min(c,o) - l > d and h - math.max(o,c) < d
+shooting = ph and h - math.max(o,c) > d and math.min(c,o) - l < d
+beareng = c > o and c[1] < o[1] and c > o[1] and o < c[1]
+//------------------------------------------------------------------------------
+//Descriptions
+//------------------------------------------------------------------------------
+hammer_ = "The hammer candlestick pattern is formed of a short body with a long lower wick, and is found at the bottom of a downward trend."
+  + "\n" + "\n A hammer shows that although there were selling pressures during the day, ultimately a strong buying pressure drove the price back up." 
+ihammer_ = "The inverted hammer is a similar pattern than the hammer pattern. The only difference being that the upper wick is long, while the lower wick is short."
+  + "\n" + "\n It indicates a buying pressure, followed by a selling pressure that was not strong enough to drive the market price down. The inverse hammer suggests that buyers will soon have control of the market."
+bulleng_ = "The bullish engulfing pattern is formed of two candlesticks. The first candle is a short red body that is completely engulfed by a larger green candle"
+  + "\n" + "\n Though the second day opens lower than the first, the bullish market pushes the price up, culminating in an obvious win for buyers"
+hanging_ = "The hanging man is the bearish equivalent of a hammer; it has the same shape but forms at the end of an uptrend."
+  + "\n" + "It indicates that there was a significant sell-off during the day, but that buyers were able to push the price up again. The large sell-off is often seen as an indication that the bulls are losing control of the market."
+shotting_ = "The shooting star is the same shape as the inverted hammer, but is formed in an uptrend: it has a small lower body, and a long upper wick."
+  + "\n" + "Usually, the market will gap slightly higher on opening and rally to an intra-day high before closing at a price just above the open – like a star falling to the ground."
+beareng_ = "A bearish engulfing pattern occurs at the end of an uptrend. The first candle has a small green body that is engulfed by a subsequent long red candle."
+  + "\n" + "It signifies a peak or slowdown of price movement, and is a sign of an impending market downturn. The lower the second candle goes, the more significant the trend is likely to be."
+//------------------------------------------------------------------------------
+n = bar_index
+label lbl = na
+H = valH > valpH ? "HH" : valH < valpH ? "LH" : na
+L = valL < valpL ? "LL" : valL > valpL ? "HL" : na
+txt = hammer ? "Hammer" : ihammer ? "Inverse Hammer" :
+  bulleng ? "Bullish Engulfing" : hanging ? "Hanging Man" :
+  shooting ? "Shooting Star" : beareng ? "Bearish Engulfing" : "None"
+des = hammer ? hammer_ : ihammer ? ihammer_ :
+  bulleng ? bulleng_ : hanging ? hanging_ :
+  shooting ? shotting_ : beareng ? beareng_ : ""
+if ph
+    lbl := label.new(n[length],math.max(c,o),H + "\n" + txt,color=#ff1100,
+      style=label.style_label_down,textcolor=color.white,tooltip=des)
+    label.delete(lbl[1])
+else if pl
+    lbl := label.new(n[length],math.min(c,o),L + "\n" + txt,color=#2157f3,
+      style=label.style_label_up,textcolor=color.white,tooltip=des)
+    label.delete(lbl[1])
+    
+    
+/////////////////////////////////////////////////////////////
+// pattern DOJI - HAMARI
+
+pctDw = input.int(60,minval=0,maxval=90,title="Doji, Min % of Range of Candle for Wicks")
+pipMin= input.int(0,minval=0,title="Doji, Previous Candle Min Pip Body Size")
+sname=input.bool(true,title="Show Price Action Bar Names")
+cbar = input.bool(false,title="Highlight Harami & Doji Bars")
+sHm    = input.bool(false,title="Show Only Harami Style Doji's")
+setalm = input.bool(true, title="Generate Alert for Harami & Doji Bars")
+uha   =input.bool(true, title="Use Heikin Ashi Candles for Calculations")
+bars = input.int(3,minval=1,maxval=3,step=1,title="Doji, Number of Lookback Bars")
+//
+// Use only Heikinashi Candles for all calculations
+srcclose = uha ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close) : close
+srcopen = uha ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, open) : open
+srchigh = uha ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, high) : high
+srclow = uha ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, low) : low
+
+//
+pip = syminfo.mintick
+hl_range = srchigh - srclow
+
+
+// Calculate Doji/Harami Candles
+pctCDw = (pctDw/2) * 0.01
+pctCDb = (100-pctDw) * 0.01
+
+//Lookback Candles for bulls or bears
+lbBull = bars==1? srcopen[1]>srcclose[1]: bars==2? (srcopen[1]>srcclose[1] and srcopen[2]>srcclose[2]): bars==3?(srcopen[1]>srcclose[1] and srcopen[2]>srcclose[2] and srcopen[3]>srcclose[3]):false
+lbBear = bars==1? srcopen[1]<srcclose[1]: bars==2? (srcopen[1]<srcclose[1] and srcopen[2]<srcclose[2]): bars==3?(srcopen[1]<srcclose[1] and srcopen[2]<srcclose[2] and srcopen[3]<srcclose[3]):false
+
+//Lookback Candle Size only if mininum size is > 0
+lbSize = pipMin==0? true : bars==1 ? (math.abs(srcopen[1]-srcclose[1])>pipMin*pip) :
+  bars==2 ? (math.abs(srcopen[1]-srcclose[1])>pipMin*pip and math.abs(srcopen[2]-srcclose[2])>pipMin*pip) :
+  bars==3 ? (math.abs(srcopen[1]-srcclose[1])>pipMin*pip and math.abs(srcopen[2]-srcclose[2])>pipMin*pip and math.abs(srcopen[3]-srcclose[3])>pipMin*pip) :
+  false
+
+dojiBu = (srcopen[1] >= math.max(srcclose,srcopen) and srcclose[1]<=math.min(srcclose,srcopen)) and lbSize and
+  (math.abs(srcclose-srcopen)<hl_range*pctCDb and (srchigh-math.max(srcclose,srcopen))>(pctCDw*hl_range) and (math.min(srcclose,srcopen)-srclow)>(pctCDw*hl_range))? 1 : 0
+
+dojiBe = (srcclose[1] >= math.max(srcclose,srcopen) and srcopen[1]<=math.min(srcclose,srcopen)) and lbSize and
+  (math.abs(srcclose-srcopen)<hl_range*pctCDb and (srchigh-math.max(srcclose,srcopen))>(pctCDw*hl_range) and (math.min(srcclose,srcopen)-srclow)>(pctCDw*hl_range))? 1 : 0
+  
+haramiBull = (srcopen<=srcclose or (math.max(srcclose,srcopen)-math.min(srcclose,srcopen))<pip*0.5) and lbBull and dojiBu
+haramiBear = (srcopen>=srcclose or (math.max(srcclose,srcopen)-math.min(srcclose,srcopen))<pip*0.5) and lbBear and dojiBe
+
+dojiBull = not sHm and not haramiBull and not haramiBear and lbBull and dojiBu
+dojiBear = not sHm and not haramiBull and not haramiBear and lbBear and dojiBe
+
+//
+//plotshape(haramiBear and sname?srchigh:na,title="Bearish Harami",text='Bearish\nHarami',color=color.red, style=shape.arrowdown,location=location.abovebar)
+//plotshape(haramiBear and cbar?math.max(srcopen,srcclose):na,title="Bear Colour Harami",color=color.red, style=shape.circle,location=location.absolute,size=size.normal)
+//
+//plotshape(haramiBull and sname?srclow:na,title="Bullish Harami",text='Bullish\nHarami',color=color.green, style=shape.arrowup,location=location.belowbar)
+//plotshape(haramiBull and cbar?math.max(srcopen,srcclose):na,title="Bull Colour Harami",color=color.green, style=shape.circle,location=location.absolute,size=size.normal)
+//
+//plotshape(dojiBear and sname?srchigh:na,title="Bearish Doji",text='Bearish\nDoji',color=color.fuchsia, style=shape.arrowdown,location=location.abovebar)
+//plotshape(dojiBear and cbar?math.max(srcopen,srcclose):na,title="Bear Colour Doji",color=color.fuchsia, style=shape.circle,location=location.absolute,size=size.normal)
+//
+//plotshape(dojiBull and sname?srclow:na,title="Bullish Doji",text='Bullish\nDoji',color=color.aqua, style=shape.arrowup,location=location.belowbar)
+//plotshape(dojiBull and cbar?math.max(srcopen,srcclose):na,title="Bull Colour Doji",color=color.aqua, style=shape.circle,location=location.absolute,size=size.normal)
+
+
+//
+//plotshape(na(baralert[1])?na:baralert[1], transp=0,style=shape.circle,location=location.bottom, offset=-1,title="Bar Alert Confirmed", 
+//  color=bcolor[1]==1 ? green : bcolor[1]==2? red : bcolor[1]==3? aqua : bcolor[1]==4? fuchsia : na)
+
+/////////////////////////////////////////////////////////////
+src = close
+di = (6 - 1.0) / 2.0 + 1.0
+c1 = 2 / (di + 1.0)
+c2 = 1 - c1
+c3 = 3.0 * (0.4 * 0.4 + 0.4 * 0.4 * 0.4)
+c4 = -3.0 * (2.0 * 0.4 * 0.4 + 0.4 + 0.4 * 0.4 * 0.4)
+c5 = 3.0 * 0.4 + 1.0 + 0.4 * 0.4 * 0.4 + 3.0 * 0.4 * 0.4
+var float i1 = na
+var float i2 = na
+var float i3 = na
+var float i4 = na
+var float i5 = na
+var float i6 = na
+i1 := c1 * src + c2 * nz(i1[1])
+i2 := c1 * i1 + c2 * nz(i2[1])
+i3 := c1 * i2 + c2 * nz(i3[1])
+i4 := c1 * i3 + c2 * nz(i4[1])
+i5 := c1 * i4 + c2 * nz(i5[1])
+i6 := c1 * i5 + c2 * nz(i6[1])
+cto = -0.4 * 0.4 * 0.4 * i6 + c3 * i5 + c4 * i4 + c5 * i3
+ema3 = ta.ema(close, 3)
+long = (close > cto and close[1] < cto[1] and close > close[1] or close[1] > cto[1] and close > close[1] and close [1] < close[2] and close > ema3) ? true : false
+profit_long = close < close[1] and low < ema3 and close[1] > ema3[1] and close[2] > ema3[2]
+        
+short = (close < cto and close[1] > cto[1] and close < close[1] or close[1] < cto[1] and close < close[1] and close [1] > close[2] and close < ema3) ? true : false
+profit_short = close > close[1] and high > ema3 and close[1] < ema3[1] and close[2] < ema3[2]
+
+
+
+
+gain1 = math.abs(close-close[1])
+gain2 = math.abs(close[1]-close[2])
+
+pattern_call = close[1]<close[2] and close[2]<close[3] and low <= low[1] and close >= close[1]and (gain1-gain2)/gain2 >= 0.5
+plotshape(pattern_call?low:na, title = "Inside pattern CALL", location = location.belowbar, color = color.green, style = shape.labelup, text = "IC", textcolor=color.white)
+
+plotshape(pattern_call and long?close:na, title = "LET CALL", location = location.belowbar, color = color.green, style = shape.circle, textcolor=color.yellow, text = "CALL 100% WIN", size=size.normal)
+
+plotshape(pattern_call and profit_short?close:na, title = "OUT PUT", location = location.belowbar, color = color.green, style = shape.circle, textcolor=color.white, size=size.normal)
+
+
+pattern_put = close[1]>close[2] and close[2]>close[3] and high<=high[1]  and close <= close[1] and (gain1-gain2)/gain2 <= -0.5
+plotshape(pattern_put?high:na, title = "Inside pattern PUT", location = location.abovebar, color = color.red, style = shape.labeldown, text = "IP", textcolor=color.white)
+    
+plotshape(pattern_put and short?close:na, title = "LET PUT", location = location.abovebar, color = color.red, style = shape.circle, textcolor=color.yellow, text = "PUT 100% WIN", size=size.normal)
+
+
+plotshape(pattern_put and profit_long?close:na, title = "OUT CALL", location = location.abovebar, color = color.red, style = shape.diamond, textcolor=color.white, size=size.normal)
+    
+if barstate.islast
+    var table panel = table.new("bottom_right", 6, 30)
+
+    table.cell(panel, 0, 1, "TREND", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+    table.cell(panel, 1, 1, txtMarkTrend+(haramiBull and sname?'BULL':''), bgcolor = color.yellow, text_color=color.black, width=30, text_halign=text.align_left)    
+    table.cell(panel, 0, 3, "EMA11", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+    table.cell(panel, 1, 3, str.format("{0}", wma11), bgcolor = color.yellow, text_color=color.black, width=30, text_halign=text.align_left)    
+    table.cell(panel, 0, 5, "EMA48", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+    table.cell(panel, 1, 5, str.format("{0}", wma48), bgcolor = color.yellow, text_color=color.black, width=30, text_halign=text.align_left)    
+    table.cell(panel, 0, 6, "DIFF 11 48", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+    table.cell(panel, 1, 6, str.format("{0}", f_RoundUp(wma11-wma48,0)), bgcolor = color.yellow, text_color=color.black, width=30, text_halign=text.align_left)    
+    
+    if low < wma200
+        table.cell(panel, 0, 7, "EMA200%", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 7, str.format("{0}%   {1}", pct_low_wma200, txtBottom), bgcolor = color.yellow, text_color=color.black, width=30, text_halign=text.align_left) 
+    
+        predictBottomPrice = wma200 + pctBottom/100*wma200
+        table.cell(panel, 0, 9, "PREDICT BOTTOM PRICE", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 9, str.format("{0}", predictBottomPrice), bgcolor = color.yellow, text_color=color.black, width=30, text_halign=text.align_left)    
+    
+    else if high > wma200
+        table.cell(panel, 0, 7, "EMA200%", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 7, str.format("{0}%   {1}", pct_high_wma200, txtTop), bgcolor = color.yellow, text_color=color.black, width=30, text_halign=text.align_left) 
+    
+        predictTopPrice = wma200 + pctTop/100*wma200
+        table.cell(panel, 0, 9, "PREDICT TOP PRICE", bgcolor = color.yellow, text_color=color.black, width=18, text_halign=text.align_left)
+        table.cell(panel, 1, 9, str.format("{0}", predictTopPrice), bgcolor = color.yellow, text_color=color.black, width=30, text_halign=text.align_left) 
+        
+
+
