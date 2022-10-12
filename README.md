@@ -12,6 +12,16 @@ Backtest on timeframe 5M
 Enjoy daily trading Futures and if this script is good please me coffee (https://www.patreon.com/donaldit)
 or need implement a script donald.nguyen.it@gmail.com
 
+## WEAK MARKET 
+* I implement logic to trade when market is weak this time let use script ```best-indicator.txt```
+
+**Using:**
+*GC = Great Call (exit PUT beforce CALL)
+*GP = Great PUT (exit CALL beforce PUT)
+*Timframe: 5m
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/best-indicator.png?raw=true "best-indicator.png")
+
 ## MARKET CRASH
 * I implement logic to trade when market crash this time let use script ```win-99.txt```
 
