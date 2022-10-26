@@ -1,0 +1,33 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © thinhdangho
+
+//@version=5
+indicator("Snag - Swing Pivot HL", overlay = true)
+
+lb = input.int(5)
+rb = input.int(5)
+
+//plot(close)
+ph = ta.pivothigh(lb, rb)
+pl = ta.pivotlow(lb, rb)
+
+var float running_ph = na
+var float running_pl = na
+
+running_ph := running_ph
+running_pl := running_pl
+
+
+if ph
+    running_ph := ph
+
+if pl
+    running_pl := pl 
+
+plot(running_ph, title = 'PH', style = plot.style_circles, linewidth = 2,color=color.blue,  offset = -rb)
+plot(running_ph, title = 'PH', style = plot.style_circles, linewidth = 2,color=color.blue, offset = 0)
+
+
+plot(running_pl, title = 'PL',  style = plot.style_circles, linewidth = 2,color=color.yellow,offset = -rb)
+plot(running_pl, title = 'PL',  style = plot.style_circles, linewidth = 2,color=color.yellow, offset = 0)
+
