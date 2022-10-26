@@ -22,6 +22,10 @@ or need implement a script donald.nguyen.it@gmail.com
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/best-indicator.png?raw=true "best-indicator.png")
 
+## SWING 
+Using indicator `swing.txt` to exit or entry CALL PUT
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/swing.png?raw=true "swing.png")
+
 ## MARKET CRASH
 * I implement logic to trade when market crash this time let use script ```win-99.txt```
 
