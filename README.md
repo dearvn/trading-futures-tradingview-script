@@ -1,3 +1,7 @@
+## WINNING VS LOSING TRADES
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/gain_loss_report.png?raw=true "gain_loss_report")
+
+
 ## SUPORT ME
 
 I like a cup of coffee at https://www.patreon.com/donaldit
