@@ -1,4 +1,7 @@
 ## WINNING VS LOSING TRADES
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/today.png?raw=true "today")
+
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/gain_loss_report.png?raw=true "gain_loss_report")
 
 
