@@ -1,3 +1,9 @@
+## PRIVATE SCRIPT
+
+**11/07/2022**
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/private.png?raw=true "private")
+
+
 ## WINNING VS LOSING TRADES
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/today.png?raw=true "today")
