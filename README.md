@@ -1,3 +1,7 @@
+## Binance Futures Trading
+
+Ref: https://github.com/dearvn/tradingview-pinscript-futures-binance
+
 ## PRIVATE SCRIPT
 
 **11/07/2022**
