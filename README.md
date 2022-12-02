@@ -1,3 +1,9 @@
+## Strategy ES 1M
+
+using: `best-strategy-es-1m.txt`
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/strategy-es.png?raw=true "strategy-es")
+
 ## Binance Futures Trading
 
 Ref: https://github.com/dearvn/tradingview-pinscript-futures-binance
