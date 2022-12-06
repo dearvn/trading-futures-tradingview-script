@@ -1,6 +1,6 @@
 ## Newbie
 
-** Use `color-trend-lite.txt` to easy trade
+** Use `color-trend-lite.txt` to trade easily
 ** blue: trend up
 ** red: trend down
 
