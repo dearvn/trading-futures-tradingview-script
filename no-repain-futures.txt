@@ -70,11 +70,25 @@ src(_src)  =>
     Source = math.round(Price / syminfo.mintick) * syminfo.mintick  // PineCoders method for aligning Pine prices with chart instrument prices
 
 // === PLOTTING ===
-bar_up   = src('close') < src('open')
+o = src('open')
+h = src('high')
+l = src('low')
+c = src('close')
+bar_up = c < o
 
-barColor   = src('close') < src('open') ? #26a69a : #ef5350  // series color
-plotcandle(src('open'), src('high'), src('low'), src('close'), title = "", color = barColor, wickcolor = barColor, bordercolor = barColor)  // plot bars
+barColor   = c < o ? color.blue : color.red  // series color
 
+//if bar_up and h[1] > o
+//    barColor := color.red
+
+//if not bar_up and l[1] < o
+//    barColor := color.blue
+
+//if not bar_up and c > c[1]
+//    barColor := color.blue
+
+
+plotcandle(o, h, l, c, title = "", color = barColor, wickcolor = barColor, bordercolor = barColor)  // plot bars
 
 //////////////////////////////////
 open3m = request.security(symbol=syminfo.tickerid, timeframe="3", expression=open, lookahead=barmerge.lookahead_on)
@@ -353,11 +367,11 @@ if ta.crossunder(wma_3m_3, wma_5m_5) or hist[1] > hist or not bar_up//or continu
 end_up_1 = open[4] < open[3] and open[3] < open[2] and open[2] > open[1] and open[1] > open
 
 
-h = hour(time_close, 'UTC+7')
-m = minute(time_close, 'UTC+7')
-lock_time = h >= 2 and h < 7
+//h = hour(time_close, 'UTC+7')
+//m = minute(time_close, 'UTC+7')
+//lock_time = h >= 2 and h < 7
 
-if (longCondition) and not lock_time
+if (longCondition) //and not lock_time
     strategy.entry("long", strategy.long) 
 
 closeLong4 =  hist>0 and hist[1] > hist and not (wma_3m_3[1] < wma_3m_3)
@@ -375,7 +389,7 @@ shortCondition = shortCondition1 or shortCondition2 or shortCondition3
 
 if bar_up
     shortCondition := false
-if (shortCondition) and not lock_time
+if (shortCondition) //and not lock_time
     strategy.entry("short", strategy.short)
 
 
