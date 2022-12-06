@@ -1,3 +1,11 @@
+## Newbie
+
+** Use `color-trend-lite.txt` to easy trade
+** blue: trend up
+** red: trend down
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/color-trend.png?raw=true "color-trend")
+
 ## Strategy ES 1M
 
 using: `best-strategy-es-1m.txt`
