@@ -1,3 +1,7 @@
+## Working on and test on `ATOMUSDTPERP`
+`no-repain-futures.txt`
+
+
 ## Newbie
 
 **Use `color-trend-lite.txt` to trade easily**
