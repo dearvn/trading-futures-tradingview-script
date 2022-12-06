@@ -1,9 +1,9 @@
 ## Newbie
 
-**Use `color-trend-lite.txt` to trade easily
-**BLUE: trend up
-**RED: trend down
-**How to use: ex: when I enter CALL if color is still BLUE then keep CALL. Or when I enter PUT if color is still RED then keep PUT.
+**Use `color-trend-lite.txt` to trade easily**
+**BLUE: trend up**
+**RED: trend down**
+**How to use: ex: when I enter CALL if color is still BLUE then keep CALL. Or when I enter PUT if color is still RED then keep PUT. Else EXIT CALL or EXIT PUT**
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/color-trend.png?raw=true "color-trend")
 
