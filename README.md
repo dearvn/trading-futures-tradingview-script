@@ -1,5 +1,7 @@
-## Working on and test on `ATOMUSDTPERP`
-`no-repain-futures.txt`
+## Use to alert on 1M ES without REPAINT time trading from 7:30AM to 12:30 PM UTC-8
+`es-futures-no-repaint.txt`
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/alert.png?raw=true "alert")
 
 
 ## Newbie
