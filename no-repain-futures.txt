@@ -1,12 +1,16 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © thinhdangho
+// © binancash
+
 
 //@version=5
-strategy("Snag - Futures No repaint", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
+strategy("Snag - No Repaint ES 1m Strategy Candle Bar", overlay=true)
 
 
-stopPer = input(10, title='Stop Loss %') / 100 
+minutes = input.int(45, title = "Max minutes to exit", minval = 0, maxval = 240)
+
+stopPer = input(0.05, title='Stop Loss %') / 100 
 takePer = input(10, title='Take Profit %') / 100
+sideway_pct = input.float(0.08, title = 'Sideway %') / 100
 
 longStop = strategy.position_avg_price * (1 - stopPer)
 shortStop = strategy.position_avg_price * (1 + stopPer)
@@ -14,17 +18,54 @@ shortTake = strategy.position_avg_price * (1 - takePer)
 longTake = strategy.position_avg_price * (1 + takePer)
 
 
-low1d = request.security(symbol=syminfo.tickerid, timeframe="60", expression=low, lookahead=barmerge.lookahead_on)
+/////////////////////////////////////////////////////
+o_h = math.max(open[3], open[2], open[1])
+o_l = math.min(open[3], open[2], open[1])
+o_o = open[1]
+o_c = open
 
+src(_src)  => 
+    Close  = (o_h + o_l + o_o + o_c)/4
+    Open  = (o_o + o_c) / 2
+    High   = math.max(o_h, math.max(Open, Close))
+    Low    = math.min(o_l,  math.min(Open, Close))
+    HL2    = math.avg(High, Low) 
+    HLC3   = math.avg(High, Low, Close) 
+    OHLC4  = math.avg(Open, High, Low, Close)
+    Price  = _src == 'close' ? Close : _src == 'open' ? Open : _src == 'high' ? High : _src == 'low' ? Low : _src == 'hl2' ? HL2 : _src == 'hlc3' ? HLC3 : OHLC4  
+    Source = math.round(Price / syminfo.mintick) * syminfo.mintick  // PineCoders method for aligning Pine prices with chart instrument prices
+
+
+source_o = src('open')
+source_c = src('close')
+source_h = src('high')
+source_l = src('low')
+
+//////////////////////////////////
+open3m = request.security(symbol=syminfo.tickerid, timeframe="3", expression=open, lookahead=barmerge.lookahead_on)
+open5m = request.security(symbol=syminfo.tickerid, timeframe="5", expression=open, lookahead=barmerge.lookahead_on)
+open8m = request.security(symbol=syminfo.tickerid, timeframe="8", expression=open, lookahead=barmerge.lookahead_on)
+open10m = request.security(symbol=syminfo.tickerid, timeframe="10", expression=open, lookahead=barmerge.lookahead_on)
+
+avg_3m_8 = (open3m[7] + open3m[6] + open3m[5] + open3m[4] + open3m[3] + open3m[2] + open3m[1] + open3m)/8
+avg_3m = (open3m[2] + open3m[1] + open3m)/3
+//avg_5m = (open5m[10] + open5m[9] + open5m[8] + open5m[7] + open5m[6] + open5m[5] + open5m[4] + open5m[3] + open5m[2] + open5m[1]+ open3m)/10
+avg_5m = (open5m[4] + open5m[3] + open5m[2] + open5m[1]+ open3m)/5
+//avg_8m = (open8m[10] + open8m[9] + open8m[8] + open8m[7] + open8m[6] + open8m[5] + open8m[4] + open8m[3] + open8m[2] + open8m[1]+ open3m)/10
+avg_8m = (open8m[7] + open8m[6] + open8m[5] + open8m[4] + open8m[3] + open8m[2] + open8m[1]+ open3m)/8
+//avg_10m = (open10m[10] + open10m[9] + open10m[8] + open10m[7] + open10m[6] + open10m[5] + open10m[4] + open10m[3] + open10m[2] + open10m[1]+ open3m)/10
+avg_10m = (open10m[9] + open10m[8] + open10m[7] + open10m[6] + open10m[5] + open10m[4] + open10m[3] + open10m[2] + open10m[1]+ open3m)/10
+
+////////////////////////////////////////////////////
 //vwap start
 point_lb = 5
 point_rb = 5
 
+oh = math.max(open[2], open[1], open)
+ol = math.min(open[2], open[1], open)
+
 
 //plot(close)
-oh = math.max(open[5], open[4], open[3], open[2], open[1], open)
-ol = math.min(open[4], open[3], open[2], open[1], open)
-
 point_ph = ta.pivothigh(oh, point_lb, point_rb)
 point_pl = ta.pivotlow(ol, point_lb, point_rb)
 
@@ -47,127 +88,26 @@ plot(running_pl, title = 'S',  style = plot.style_circles, linewidth = 1,color=c
 plot(running_pl, title = 'S',  style = plot.style_circles, linewidth = 1,color=color.blue, offset = 0)
 
 
-avg_change = (math.abs(open[10] - open[9]) + math.abs(open[9] - open[8]) + math.abs(open[8] - open[7]) + math.abs(open[7] - open[6]) + math.abs(open[6] - open[5]) + math.abs(open[5] - open[4]) + math.abs(open[4] - open[3]) + math.abs(open[3] - open[2]) + math.abs(open[2] - open[1]) + math.abs(open[1] - open[0]))/10
+source = (open[9] + open[8] + open[7] + open[6] + open[5] + open[4] + open[3] + open[2] + open[1] + open)/10
 
 
+var bool is_strong_buy = false
+var bool is_strong_sell = false
+if running_ph and ta.crossover(source, running_ph) and barstate.isconfirmed
+    is_strong_buy := true
+    is_strong_sell := false
+if running_pl and ta.crossunder(source, running_ph) and barstate.isconfirmed
+    is_strong_buy := false
+if running_pl and ta.crossunder(source, running_pl) and barstate.isconfirmed
+    is_strong_sell := true
+    is_strong_buy := false
+if running_pl and ta.crossover(source, running_pl) and barstate.isconfirmed
+    is_strong_sell := false
 
-avg = (open[10] + open[9] + open[8] + open[7] + open[6] + open[5] + open[4] + open[3] + open[2] + open[1])/10
+//vwap end
 
-o_h = math.max(open[3], open[2], open[1])
-o_l = math.min(open[3], open[2], open[1])
-o_o = open[1]
-o_c = open
-
-src(_src)  => 
-    Close  = (o_h + o_l + o_o + o_c)/4
-    Open  = (o_o + o_c) / 2
-    High   = math.max(o_h, math.max(Open, Close))
-    Low    = math.min(o_l,  math.min(Open, Close))
-    HL2    = math.avg(High, Low) 
-    HLC3   = math.avg(High, Low, Close) 
-    OHLC4  = math.avg(Open, High, Low, Close)
-    Price  = _src == 'close' ? Close : _src == 'open' ? Open : _src == 'high' ? High : _src == 'low' ? Low : _src == 'hl2' ? HL2 : _src == 'hlc3' ? HLC3 : OHLC4  
-    Source = math.round(Price / syminfo.mintick) * syminfo.mintick  // PineCoders method for aligning Pine prices with chart instrument prices
-
-// === PLOTTING ===
-c = src('close')
-o = src('open')
-h = src('high')
-l = src('low')
-bar_up   = c < o
-
-
-
-//barColor   = c < o ? #26a69a : #ef5350  // series color
-//plotcandle(o, h, l, c, title = "", color = barColor, wickcolor = barColor, bordercolor = barColor)  // plot bars
-
-
-//////////////////////////////////
-open3m = request.security(symbol=syminfo.tickerid, timeframe="3", expression=open, lookahead=barmerge.lookahead_on)
-open5m = request.security(symbol=syminfo.tickerid, timeframe="5", expression=open, lookahead=barmerge.lookahead_on)
-open8m = request.security(symbol=syminfo.tickerid, timeframe="8", expression=open, lookahead=barmerge.lookahead_on)
-open10m = request.security(symbol=syminfo.tickerid, timeframe="10", expression=open, lookahead=barmerge.lookahead_on)
-
-avg_3m_8 = (open3m[7] + open3m[6] + open3m[5] + open3m[4] + open3m[3] + open3m[2] + open3m[1] + open3m)/8
-avg_3m = (open3m[2] + open3m[1] + open3m)/3
-//avg_5m = (open5m[10] + open5m[9] + open5m[8] + open5m[7] + open5m[6] + open5m[5] + open5m[4] + open5m[3] + open5m[2] + open5m[1]+ open3m)/10
-avg_5m = (open5m[4] + open5m[3] + open5m[2] + open5m[1]+ open3m)/5
-//avg_8m = (open8m[10] + open8m[9] + open8m[8] + open8m[7] + open8m[6] + open8m[5] + open8m[4] + open8m[3] + open8m[2] + open8m[1]+ open3m)/10
-avg_8m = (open8m[7] + open8m[6] + open8m[5] + open8m[4] + open8m[3] + open8m[2] + open8m[1]+ open3m)/8
-//avg_10m = (open10m[10] + open10m[9] + open10m[8] + open10m[7] + open10m[6] + open10m[5] + open10m[4] + open10m[3] + open10m[2] + open10m[1]+ open3m)/10
-avg_10m = (open10m[9] + open10m[8] + open10m[7] + open10m[6] + open10m[5] + open10m[4] + open10m[3] + open10m[2] + open10m[1]+ open3m)/10
-
-wma_3m_3 = ta.wma(avg_3m, 3)
-plot(wma_3m_3, color = color.blue)
-
-wma_3m_8 = ta.wma(avg_3m_8, 8)
-plot(wma_3m_8, color = color.red)
-
-wma_5m_5 = ta.wma(avg_3m, 11)
-plot(wma_5m_5, color = color.yellow)
-
-wma_8m_8 = ta.wma(avg_8m, 21)
-plot(wma_8m_8, color = color.white)
-
-wma_10m_10 = ta.wma(avg_10m, 48)
-plot(wma_10m_10, color = color.gray)
-
-rsi = ta.rsi(c, 5)
-
-bottomsupport = running_pl and avg > running_pl and avg > avg[1] and rsi > rsi[1] + 8
-
-
-//plotshape(bottomsupport ? low : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.yellow, size=size.normal)
-
-
-bigdrop = rsi + 8 < rsi[1] and avg > ta.sma(avg, 11) and running_ph and avg < running_ph and not (wma_3m_3[1] < wma_3m_3)
-
-is_cross_res = ta.crossover(avg, running_ph) and avg > wma_3m_3 and wma_3m_3 > wma_5m_5
-
-//plotshape(bigdrop ? low : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.blue, size=size.normal)
-
-//plotshape(is_cross_res ? low : na, title="Logic2", style=shape.diamond, location=location.absolute, color=color.white, size=size.normal)
-
-
-/////////////////////////
-close10 = avg_10m //request.security(symbol=syminfo.tickerid, timeframe="11", expression=avg_10m, lookahead=barmerge.lookahead_on)
-
-wma10_11 = ta.wma(avg_10m, 4)
-wma_10_11 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=wma10_11, lookahead=barmerge.lookahead_on)
-//plot(wma_10_11, 'ema10_11', color.blue) 
-
-wma10_48 = ta.wma(avg_10m, 9)
-wma_10_48 = request.security(symbol=syminfo.tickerid, timeframe="12", expression=wma10_48, lookahead=barmerge.lookahead_on)
-//plot(wma_10_48, 'ema10_48', color.orange) 
-
-close8 = avg_8m //request.security(symbol=syminfo.tickerid, timeframe="5", expression=avg_8m, lookahead=barmerge.lookahead_on)
-
-wma8_11 = ta.wma(avg_8m, 3)
-wma_8_11 = request.security(symbol=syminfo.tickerid, timeframe="12", expression=wma8_11, lookahead=barmerge.lookahead_on)
-//plot(wma_10_11, 'ema10_11', color.purple) 
-
-wma8_48 = ta.wma(avg_8m, 8)
-wma_8_48 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=wma8_48, lookahead=barmerge.lookahead_on)
-
-
-up10m = false
-
-if close10 > wma_10_11
-    up10m := true
-
-down8m = false
-if close8 < wma_8_48
-    down8m := true
-
-
-
-//plotshape(down8m ?  low1d*0.998: na, title="No Short", style=shape.circle, location=location.absolute, color=color.yellow, size=size.tiny)
-//plotshape(up10m ?  low1d*0.995: na, title="No Short", style=shape.circle, location=location.absolute, color=color.blue, size=size.tiny)
-
-
-/////////////////////////*****
 // logic buy sell improve start
-src = avg
+src = source
 di = (6 - 1.0) / 2.0 + 1.0
 c1 = 2 / (di + 1.0)
 c2 = 1 - c1
@@ -190,255 +130,490 @@ i6 := c1 * i5 + c2 * nz(i6[1])
 Cto = -0.4 * 0.4 * 0.4 * i6 + c3 * i5 + c4 * i4 + c5 * i3
 //bfrC = Cto > nz(Cto[1]) ? raise : Cto < nz(Cto[1]) ? fall : na
 //plot(Cto, title='Trend', linewidth=2, style=plot.style_line, color=color.new(color.red, 0), editable=false)
-ema3 = ta.ema(avg_3m, 3)
+ema3 = ta.ema(source, 3)
 //plot(ema3, title='EMA', linewidth=2, style=plot.style_line, color=color.new(color.white, 0))
 
 var bool is_cross_up = false
 var bool is_cross_down = false
 
-if ta.crossover(ema3, Cto)
+if ta.crossover(ema3, Cto) and barstate.isconfirmed
     is_cross_up := true
     is_cross_down := false
-if ta.crossunder(ema3, Cto)
+if ta.crossunder(ema3, Cto) and barstate.isconfirmed
     is_cross_down := true
     is_cross_up := false
 
 //condition Long & Short
-long = (avg > Cto and avg[1] < Cto[1] and avg > avg[1] or avg[1] > Cto[1] and avg > avg[1] and avg[1] < avg[2] and avg > ema3) ? true : false
-profit_long = close < close[1] and low < ema3 and close[1] > ema3[1] and close[2] > ema3[2] and barstate.isconfirmed
+long = (source > Cto and o_c[1] < Cto[1] and source > o_c[1] or o_c[1] > Cto[1] and source > o_c[1] and o_c[1] < o_c[2] and source > ema3) and barstate.isconfirmed ? true : false
+profit_long = source < o_c[1] and ol < ema3 and o_c[1] > ema3[1] and o_c[2] > ema3[2] and barstate.isconfirmed
 //var int trend = 0
     
 
-short = (avg < Cto and avg[1] > Cto[1] and avg < avg[1] or avg[1] < Cto[1] and avg < avg[1] and avg [1] > avg[2] and avg < ema3) ? true : false
-profit_short = close > close[1] and high > ema3 and close[1] < ema3[1] and close[2] < ema3[2] and barstate.isconfirmed
-
-
-//plotshape(short ?  high: na, title="No Short", style=shape.xcross, location=location.absolute, color=color.yellow, size=size.normal)
-//plotshape(long ?  low: na, title="No Short", style=shape.xcross, location=location.absolute, color=color.blue, size=size.normal)
+short = (source < Cto and o_c[1] > Cto[1] and source < o_c[1] or o_c[1] < Cto[1] and source < o_c[1] and o_c[1] > o_c[2] and source < ema3) and barstate.isconfirmed ? true : false
+profit_short = source > o_c[1] and oh > ema3 and o_c[1] < ema3[1] and o_c[2] < ema3[2] and barstate.isconfirmed
 
 // logic buy sell improvate end
 
-
-//////////////////////////******
-
-wma3 = ta.wma(avg, 3)
-wma11 = ta.wma(avg, 11)
-wma21 = ta.wma(avg, 21)
-wma48 = ta.wma(avg, 50)
-
-//plot(wma3, color = color.yellow)
-//plot(wma11, color = color.white)
-//plot(wma21, color = color.gray)
+rsi = ta.rsi(source, 3)
 
 
-//plot(wma48, color = color.blue)
+//plot(VWAP, color=color.yellow)
+
+
+ema48 = ta.wma(source, 48)
+ema11 = ta.wma(source, 11)
+ema200 = ta.wma(source, 200)
 
 
 
 
+close10 = request.security(symbol=syminfo.tickerid, timeframe="12", expression=close, lookahead=barmerge.lookahead_on)
 
-tiny_change = math.abs(math.abs(open[1] - open[0]) - avg_change)
-//label.new(bar_index, low1d, text=str.format("{0}", math.abs(open[1]-avg_8m) ), textcolor=color.yellow, style=label.style_triangleup, size=size.tiny)
+wma10_11 = ta.wma(close, 4)
+wma_10_11 = request.security(symbol=syminfo.tickerid, timeframe="12", expression=wma10_11, lookahead=barmerge.lookahead_on)
+//plot(wma_10_11, 'ema10_11', color.blue) 
 
-//plotshape(math.abs(open-avg) <= 0.001 and math.abs(open[1]-avg) <= 0.07 ? low : na, title="Logic1", style=shape.triangledown, location=location.absolute, color=color.yellow, size=size.normal)
+wma10_48 = ta.wma(close, 9)
+wma_10_48 = request.security(symbol=syminfo.tickerid, timeframe="12", expression=wma10_48, lookahead=barmerge.lookahead_on)
+//plot(wma_10_48, 'ema10_48', color.yellow) 
 
-end_up_2 = ta.crossover(open, running_ph) and open[2] < open[1] and open[1] < open and tiny_change > 0.1
-//plotshape(end_up_2? low : na, title="Logic1", style=shape.triangledown, location=location.absolute, color=color.white, size=size.normal)
+close8 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=close, lookahead=barmerge.lookahead_on)
 
-is_up = open > avg
+wma8_11 = ta.wma(close, 3)
+wma_8_11 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=wma8_11, lookahead=barmerge.lookahead_on)
+//plot(wma_10_11, 'ema10_11', color.blue) 
 
-start_up_1 = not is_up[10] and not is_up[9] and not is_up[8] and not is_up[7] and not is_up[6] and not is_up[5] and not is_up[4] and not is_up[3] and not is_up[2] and not is_up[1] and is_up
+wma8_48 = ta.wma(close, 8)
+wma_8_48 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=wma8_48, lookahead=barmerge.lookahead_on)
 
+/////////////
+var bool cross_up_wma_10 = false
+var bool cross_down_wma_10 = false
+if ta.crossover(wma_10_11, wma_10_48) and barstate.isconfirmed
+    cross_up_wma_10 := true
+    cross_down_wma_10 := false
+if ta.crossunder(wma_10_11, wma_10_48) and barstate.isconfirmed
+    cross_up_wma_10 := false
+    cross_down_wma_10 := true
 
+up10m = false
 
-//plotshape(start_up_1 ? low : na, title="Logic1", style=shape.triangleup, location=location.absolute, color=color.yellow, size=size.tiny)
+if close10 > wma_10_11
+    up10m := true
 
+down8m = false
+if close8 < wma_8_11
+    down8m := true
 
+////logic volume start
+x =  input.float(3.1, title="Factor For Breakout Candle")
+red   = #ff848a      //#ff848a // #FA8072 // #323433 // #ff848a
+green = #8cffe5      // #8cffe5 // #6DC066 // #80aebd // #8cffe5
 
-
-///////////////////////MACD START
-fast_length = 5
-slow_length = 13
-signal_length = 8
-sma_source = input.string(title="Oscillator MA Type",  defval="EMA", options=["SMA", "EMA"])
-sma_signal = input.string(title="Signal Line MA Type", defval="EMA", options=["SMA", "EMA"])
-// Plot colors
-col_macd = input(#2962FF, "MACD Line  ", group="Color Settings", inline="MACD")
-col_signal = input(#FF6D00, "Signal Line  ", group="Color Settings", inline="Signal")
-col_grow_above = input(#26A69A, "Above   Grow", group="Histogram", inline="Above")
-col_fall_above = input(#B2DFDB, "Fall", group="Histogram", inline="Above")
-col_grow_below = input(#FFCDD2, "Below Grow", group="Histogram", inline="Below")
-col_fall_below = input(#FF5252, "Fall", group="Histogram", inline="Below")
-// Calculating
-fast_ma = ta.ema(avg, fast_length)
-slow_ma = ta.ema(avg, slow_length)
-macd = fast_ma - slow_ma
-signal = ta.ema(macd, signal_length)
-hist = macd - signal
-//hline(0, "Zero Line", color=color.new(#787B86, 50))
-//plot(hist, title="Histogram", style=plot.style_columns, color=(hist>=0 ? (hist[1] < hist ? col_grow_above : col_fall_above) : (hist[1] < hist ? col_grow_below : col_fall_below)))
-//plot(macd, title="MACD", color=color.white)
-//plot(signal, title="Signal", color=color.yellow)
-//////////////////////MACD END
-
-
-/////////////////////RSI START
-
-ma(source, length, type) =>
-    switch type
-        "SMA" => ta.sma(source, length)
-        "Bollinger Bands" => ta.sma(source, length)
-        "EMA" => ta.ema(source, length)
-        "SMMA (RMA)" => ta.rma(source, length)
-        "WMA" => ta.wma(source, length)
-        "VWMA" => ta.vwma(source, length)
+// Basic Volume Calcs //
+bull =  source>open?volume:0 
+bear =  open>source?volume:0
 
 
-rsiLengthInput = 11
-maTypeInput = "SMA"
-maLengthInput = 24
-bbMultInput = 2.0
+// BEAR Moving Average Calculation
+bullma = ta.wma(bull, 14)
 
-up = ta.rma(math.max(ta.change(avg), 0), rsiLengthInput)
-down = ta.rma(-math.min(ta.change(avg), 0), rsiLengthInput)
-rsi2 = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
-rsiMA = ma(rsi, maLengthInput, maTypeInput)
-//plot(rsi2, "RSI", color=#7E57C2)
-//plot(rsiMA, "RSI-based MA", color=color.yellow)
-var bool is_cross_down_rsi = false
-var bool is_cross_up_rsi = false
-if ta.crossover(rsi2, rsiMA)
-    is_cross_down_rsi := false
-    is_cross_up_rsi := true
-if ta.crossunder(rsi2, rsiMA)
-    is_cross_down_rsi := true
-    is_cross_up_rsi := false
-/////////////////////RSI END
+// BEAR Moving Average Calculation //
+bearma = ta.wma(bear, 14)
+
+// ma dif //
+vf_dif = bullma-bearma
+
+// example
+
+
+vf_absolute = vf_dif > 0 ? vf_dif : vf_dif * (-1)
+
+// Volume Spikes //
+var bool gsig = false
+var bool rsig = false
+if ta.crossover(bull, bullma*x) and barstate.isconfirmed
+    gsig := true
+    rsig := false
+if ta.crossover(bear, bearma*x) and barstate.isconfirmed
+    rsig := true
+    gsig := false
 
 
 
 
-longCondition1 = wma3 < wma11 and ta.crossover(open,wma21) and (wma_3m_3[1] < wma_3m_3) and not (wma_3m_8[1] > wma_3m_8) 
-
-longCondition2 = wma3 > wma11 and start_up_1 or long[1] and not bottomsupport[2] and bottomsupport[1] and bottomsupport and open[1] < open
-
-longCondition3 = long and not bottomsupport[2] and bottomsupport[1] and bottomsupport and open[1] < open
- 
-
-longCondition4 = ta.crossover(open, wma_3m_8) and ta.crossover(open, wma_5m_5) and not (wma_3m_3 < wma_5m_5 and wma_5m_5 < wma_3m_8) and not (macd[1] > macd)
+// Color Calcs //
+vdClr = vf_dif > 0 ? true : false
+vClr = source>open ? true:false
 
 
-start_bottom = hist<0 and hist[1] < hist //and signal[1] < signal
+////logic volume end
+
+// super trend start
+cci_period = 28
+cci = ta.cci(source, cci_period)
+ML = 0
+
+f_supertrend() =>
+
+    Up=hl2 - 3.0 * ta.atr(3)
+    Dn=hl2 + 3.0 * ta.atr(3)
+    
+    TrendUp = 0.0
+    TrendUp := cci[1] > ML ? math.max(Up,TrendUp[1]) : Up
+    TrendDown = 0.0
+    TrendDown := cci[1]< ML ? math.min(Dn,TrendDown[1]) : Dn
+    Trend = 0.0
+    Trend := cci > ML ? 1: cci < ML ? -1: nz(Trend[1],1)
+    Tsl = Trend==1? TrendUp: TrendDown
+
+    Tsl
+
+st_tsl = f_supertrend()
+
+buy= source >= st_tsl
+sell= source < st_tsl
+buy1= ta.barssince(buy)
+sell1 = ta.barssince(sell)
+
+buy_trend = buy1[1] > sell1[1] ? true : false
+
+buy2= ta.barssince(sell)
+sell2 = ta.barssince(buy)
+sell_trend = buy2[1] > sell2[1] ? true : false
+var bool is_buy = false
+var bool is_sell = false
+if sell_trend
+    is_sell := true
+    is_buy := false
+if buy_trend
+    is_sell := false
+    is_buy := true
+// super trend end
+
+// ema cross start
+
+oc = math.abs(open[1]-source[1])
+hl = math.abs(o_h[1]-o_l[1])
+ochl = (oc-hl)/hl
+ll = (o_l[1]-o_l[2])/o_l[2]
+crossUpWMA11 = ta.crossover(ema11, ema48) and barstate.isconfirmed
+crossDownWMA11 = ta.crossunder(ema11, ema48) and barstate.isconfirmed
+var bool crossup11_48 = false
+var bool crossdown11_48 = false
+var int cnt_out_up = 0
+if crossUpWMA11
+    crossup11_48 := true
+    crossdown11_48 := false
+    cnt_out_up := 0
+if crossDownWMA11
+    crossup11_48 := false
+    crossdown11_48 := true
+    cnt_out_up := 0
+is_br = o_o[2] < o_c[2] and open[1] < o_c[1] and o_c < open and o_c[2] < o_c[1] and o_c[1] > o_c and ochl < 0.3 and (o_l[3] < o_l[2] and o_l[2] < o_l[1])
+if is_br
+    cnt_out_up := cnt_out_up + 1
+
+is_out_up = false
+if cnt_out_up>2
+    is_out_up := true
+    cnt_out_up := 0
+
+// ema cross end 
 
 
-longCondition5 = start_bottom and ta.crossover(wma_3m_3, wma_5m_5) and avg[1] < avg
+// trend strong start 
+wma13 = ta.wma(o_c, 13)
+plot(wma13, title="WMA13", color=color.blue)
+
+wma48 = ta.wma(o_c, 48)
+plot(wma48, title="WMA48", color=color.yellow)
+
+wma200 = ta.wma(o_c, 200)
+plot(wma200, title="WMA200", color=color.white)
+
+crossUpWMA13 = ta.crossover(o_c, wma13) and barstate.isconfirmed
+crossDownWMA13 = ta.crossunder(o_c, wma13) and barstate.isconfirmed
+crossUpWMA48 = ta.crossover(o_c, wma48) and barstate.isconfirmed
+crossDownWMA48 = ta.crossunder(o_c, wma48) and barstate.isconfirmed
+crossUpWMA200 = ta.crossover(o_c, wma200) and barstate.isconfirmed
+crossDownWMA200 = ta.crossunder(o_c, wma200) and barstate.isconfirmed
+
+crossUpWMA13_48 = ta.crossover(wma13, wma48) and barstate.isconfirmed
+crossDownWMA13_48 = ta.crossunder(wma13, wma48) and barstate.isconfirmed
+crossUpWMA48_200 = ta.crossover(wma48, wma200) and barstate.isconfirmed
+crossDownWMA48_200 = ta.crossunder(wma48, wma200) and barstate.isconfirmed
+
+var price_wmacrossup_arr = array.new_float()
+var price_wmacrossdown_arr = array.new_float()
+
+if crossUpWMA48_200
+    price_wmacrossdown_arr := array.new_float()
+    array.push(price_wmacrossup_arr, o_c)
+else if crossDownWMA48_200
+    price_wmacrossup_arr := array.new_float()
+    array.push(price_wmacrossdown_arr, o_c)
+        
+var bool isUpTrend = false
+var bool isDownTrend = false
+
+if crossUpWMA13 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+else if crossUpWMA48 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+else if crossUpWMA200 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+
+if crossDownWMA13 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+else if crossDownWMA48 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+else if crossDownWMA200 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+    
+var int trendUp = 0
+var int trendDown = 0
+
+if isUpTrend
+    if crossUpWMA13_48
+        trendUp := 1
+        trendDown := 0
+    if crossUpWMA48_200
+        trendUp := 2
+        trendDown := 0
+        
+if isDownTrend
+    if crossDownWMA13_48
+        trendUp := 0
+        trendDown := 1
+    if crossDownWMA48_200
+        trendUp := 0
+        trendDown := 2
+// trend strong end 
 
 
-//plotshape(longCondition1 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.yellow, size=size.normal)
-//plotshape(longCondition2 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.white, size=size.normal)
-//plotshape(longCondition3 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.blue, size=size.normal)
-//plotshape(longCondition4 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.gray, size=size.normal)
-//plotshape(longCondition5 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.red, size=size.normal)
+// clone start
+periodMa = input.int(title='Delta Length', minval=1, defval=2)
+iff_1 = o_c[1] < o_o ? math.max(o_h - o_c[1], o_c - o_l) : math.max(o_h - o_o, o_c - o_l)
+iff_2 = o_c[1] > o_o ? o_h - o_l : math.max(o_o - o_c[1], o_h - o_l)
+iff_3 = o_c[1] < o_o ? math.max(o_h - o_c[1], o_c - o_l) : o_h - o_o
+iff_4 = o_c[1] > o_o ? o_h - o_l : math.max(o_o - o_c[1], o_h - o_l)
+iff_5 = o_c[1] < o_o ? math.max(o_o - o_c[1], o_h - o_l) : o_h - o_l
+iff_6 = o_c[1] > o_o ? math.max(o_h - o_o, o_c - o_l) : iff_5
+iff_7 = o_h - o_c < o_c - o_l ? iff_4 : iff_6
+iff_8 = o_h - o_c > o_c - o_l ? iff_3 : iff_7
+iff_9 = o_c > o_o ? iff_2 : iff_8
+bullPower = o_c < o_o ? iff_1 : iff_9
+iff_10 = o_c[1] > o_o ? math.max(o_c[1] - o_o, o_h - o_l) : o_h - o_l
+iff_11 = o_c[1] > o_o ? math.max(o_c[1] - o_l, o_h - o_c) : math.max(o_o - o_l, o_h - o_c)
+iff_12 = o_c[1] > o_o ? math.max(o_c[1] - o_o, o_h - o_l) : o_h - o_l
+iff_13 = o_c[1] > o_o ? math.max(o_c[1] - o_l, o_h - o_c) : o_o - o_l
+iff_14 = o_c[1] < o_o ? math.max(o_o - o_l, o_h - o_c) : o_h - o_l
+iff_15 = o_c[1] > o_o ? math.max(o_c[1] - o_o, o_h - o_l) : iff_14
+iff_16 = o_h - o_c < o_c - o_l ? iff_13 : iff_15
+iff_17 = o_h - o_c > o_c - o_l ? iff_12 : iff_16
+iff_18 = o_c > o_o ? iff_11 : iff_17
+bearPower = o_c < o_o ? iff_10 : iff_18
+
+bullVolume = bullPower / (bullPower + bearPower) * volume
+bearVolume = bearPower / (bullPower + bearPower) * volume
+
+delta = bullVolume - bearVolume
+cvd = ta.cum(delta)
+cvdMa = ta.ema(cvd, periodMa)
+
+deltagood = cvd > cvdMa
+deltabad = cvd < cvdMa
+
+// clone end 
 
 
-longCondition = longCondition1 or longCondition2 or longCondition3 or longCondition4 or longCondition5
+// sideway start
 
-continue_down = math.abs(wma_3m_8 - wma_8m_8) >  math.abs(wma_3m_8[1] - wma_8m_8[1]) and math.abs(wma_3m_8[2] - wma_8m_8[2]) >  math.abs(wma_3m_8[3] - wma_8m_8[3])
+low1d = request.security(symbol=syminfo.tickerid, timeframe="60", expression=o_l, lookahead=barmerge.lookahead_on)
 
-continue_up = math.abs(wma_3m_8 - wma_8m_8) <  math.abs(wma_3m_8[1] - wma_8m_8[1]) and math.abs(wma_3m_8[1] - wma_8m_8[1]) <  math.abs(wma_3m_8[2] - wma_8m_8[2])
+avg = (o_c[10] + o_c[9] + o_c[8] + o_c[7] + o_c[6] +o_c[5] + o_c[4] + o_c[3] + o_c[2] + o_c[1])/10
+keep_short = wma13 < wma48 and wma13 < avg and avg < wma48
+
+start_long = wma13 > wma48 and wma13 > avg and avg > wma48 and (ta.crossover(wma13, wma48) and o_c > wma13 and o_c > wma48 or o_c > wma13 and ta.crossover(o_c, wma48) or o_c > wma48 and ta.crossover(o_c, wma13) or o_c[1] > wma13 and ta.crossover(wma13[1], wma200[1]))
+keep_long = wma13 > wma48 and wma13 > avg and avg > wma48
+sideway = math.abs(o_c[1]-avg)/avg < sideway_pct
 
 
-//plotshape(not bar_up ?  low1d*0.998: na, title="No Short", style=shape.circle, location=location.absolute, color=color.yellow, size=size.tiny)
-//plotshape(bar_up ?  low1d*0.998: na, title="No Short", style=shape.circle, location=location.absolute, color=color.blue, size=size.tiny)
+// sideway end
+
+bottomsupport = running_pl and o_c > running_pl and o_c > o_c[1] and rsi > rsi[1] + 8
+
+bigdrop = rsi + 8 < rsi[1] and o_c > ema48 and running_ph and o_c < running_ph 
+
+is_cross_res = ta.crossover(o_c, running_ph) and o_c > wma13 and wma13 > wma48
+
+var bool is_long = false
+var bool is_short = false
+
+longCondition = (buy_trend and up10m and is_cross_res or up10m and buy_trend and (start_long or o_c*1.05 > wma13 and rsi > rsi[1] + 6 or rsi > rsi[1] + 8 and long or is_cross_up and bottomsupport and is_strong_buy or bottomsupport)) and barstate.isconfirmed
 
 
-if ta.crossunder(wma_3m_3, wma_5m_5) or hist[1] > hist or not bar_up//or continue_down//nd wma_3m_8 < wma_8m_8//or rsiMA[1] > rsiMA
+not_close_long = up10m and not down8m
+is_lost = wma13[3] > wma13[2] and wma13[2] > wma13[1]
+if is_lost
     longCondition := false
 
+var int cnt_time_long = 0
 
-end_up_1 = open[4] < open[3] and open[3] < open[2] and open[2] > open[1] and open[1] > open
+if longCondition
+    is_long := true
 
-
-
-hr = hour(time_close, 'UTC-8')
-mi = minute(time_close, 'UTC-8')
-lock_time = hr >= 13 or hr == 12 and mi > 45 or hr < 2
-
-//label.new(bar_index, low1d, text=str.format("{0}", h ), textcolor=color.yellow, style=label.style_triangleup, size=size.normal)
-
-plotshape(lock_time ?  low1d*0.993: na, title="No Short", style=shape.circle, location=location.absolute, color=color.blue, size=size.tiny)
-
-if (longCondition) and not lock_time
-    strategy.entry("call", strategy.long) 
-
-closeLong4 =  hist>0 and hist[1] > hist and not (wma_3m_3[1] < wma_3m_3)
+if is_long
+    cnt_time_long := cnt_time_long + 1
+    
 
 
-start_short_2 = wma3 > wma11 and open[2] < wma3 and open[1] < wma11 and open < wma11
+shortCondition = down8m and (o_c*0.94 < wma13 and rsi + 8 < rsi[1] or rsi + 8 < rsi[1] and short or is_br or bigdrop and is_strong_sell) and barstate.isconfirmed
 
-shortCondition1 = start_short_2 or bigdrop //or end_up_1[1] and not end_up_1 and open < wma3
+var int cnt_time_short = 0
 
-shortCondition2 = closeLong4 and closeLong4[1] and closeLong4[2]
 
-shortCondition3 = bar_up[10] and bar_up[9] and bar_up[8] and bar_up[7] and bar_up[6] and bar_up[5] and bar_up[4] and bar_up[3] and bar_up[2] and bar_up[1] and not bar_up
+if shortCondition
+    is_short := true
 
-shortCondition4 = bar_up[3] and bar_up[2] and not bar_up[1] and not bar_up and ta.crossunder(l, wma_5m_5)
 
-shortCondition = shortCondition1 or shortCondition2 or shortCondition3 or shortCondition4
+if is_short
+    cnt_time_short := cnt_time_short + 1
 
-if bar_up
+    //label.new(bar_index, low, text="*"+str.format("{0}", cnt_time_short), textcolor=color.yellow, style=label.style_triangleup, size=size.tiny)
+    //shortCondition := false
+
+////////////
+
+var bool wma13_wma48_up = false
+var bool wma13_wma48_down = false
+
+
+if crossUpWMA13_48
+    wma13_wma48_down := false
+    wma13_wma48_up := true
+
+if crossDownWMA13_48
+    wma13_wma48_down := true
+    wma13_wma48_up := false
+
+if is_short and wma13_wma48_down or wma13 < wma48 and math.abs(wma13-wma48) < 0.008 or down8m
+    longCondition := false
+
+if is_long and wma13_wma48_up or wma13 > wma48 and math.abs(wma13-wma48) < 0.005 or wma13 < wma48 and wma13 < wma13[1]
     shortCondition := false
-if (shortCondition)  and not lock_time
-    strategy.entry("put", strategy.short)
+
+if up10m and down8m
+    longCondition := false
+    shortCondition := false
+
+///////////
+
+// close by macd start
+fast_length = 7
+slow_length = 20
+signal_length = 7
+// Calculating
+fast_ma = ta.wma(src, fast_length)
+slow_ma = ta.wma(src, slow_length)
+macd = fast_ma - slow_ma
+signal = ta.wma(macd, signal_length)
+hist = macd - signal
+is_cross_macd_short = ta.crossover(macd, signal) and macd < 0 and signal < 0
+
+plotshape(is_cross_macd_short ? low : na, title="Less", style=shape.diamond, location=location.absolute, color=color.yellow, size=size.tiny)
+
+
+//label.new(bar_index, low1d*0.999, text="*"+str.format("{0}", math.abs(wma13-wma48)), textcolor=color.yellow, style=label.style_triangleup, size=size.tiny)
+//plotshape(wma13 < wma48 and math.abs(wma13-wma48) < 0.005 ?  low1d: na, title="No Long", style=shape.xcross, location=location.absolute, color=color.gray, size=size.tiny)
+//plotshape(wma13 > wma48 and math.abs(wma13-wma48) < 0.008 ?  low1d: na, title="No Short", style=shape.xcross, location=location.absolute, color=color.white, size=size.tiny)
 
 
 
-closeLong1 = end_up_1 
-
-closeLong2 = end_up_2
-
-closeLong3 = ta.crossunder(open, wma_3m_3) and not (hist[1] < hist)
-
-closeLong5 = wma_8m_8[1] > wma_8m_8 and open[2] >= open[1] and open[1] >= open
-
-//plotshape(closeLong1 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.white, size=size.normal)
-//plotshape(closeLong2 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.orange, size=size.normal)
-//plotshape(closeLong3 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.yellow, size=size.normal)
-//plotshape(closeLong4 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.blue, size=size.normal)
+plotshape(down8m ?  low1d*0.998: na, title="No Short", style=shape.xcross, location=location.absolute, color=color.yellow, size=size.tiny)
+plotshape(up10m ?  low1d*0.995: na, title="No Short", style=shape.xcross, location=location.absolute, color=color.blue, size=size.tiny)
 
 
-closelong = closeLong1 or closeLong2 or closeLong3 or closeLong4 //or closeLong5
 
-if bottomsupport
-    closelong := false
+plotshape(up10m and is_cross_res?  low: na, title="Go Strong", style=shape.xcross, location=location.absolute, color=color.orange, size=size.tiny)
 
-closeShort2 = wma3 < wma11 and open[1] > wma3[1] and open > wma11 and not (wma_3m_3[1] > wma_3m_3) and not (wma_5m_5[1] > wma_5m_5)  
+// close by macd end
 
-if open < wma21 or is_cross_up_rsi
-    closeShort2 := false
 
-closeShort1 = start_bottom and (not (open < wma_3m_3 or open[1] < wma_3m_3[1]) or wma_3m_3[1] < wma_3m_3)
+// exit long when has a short signal and otherwise
+closelong = ((rsi > 70 ) and o_h[2] < o_h[1] and o_h[1] > o_h or down8m and (trendDown > 1 or profit_long or bigdrop and not is_cross_up or is_out_up ) or up10m[1] and not up10m) and barstate.isconfirmed
 
-//closeShort3 =open[2] < wma_3m_3[2] and open > wma_3m_3 and open[1] < open
 
-closeshort = closeShort1 or closeShort2 //or closeShort3
+if not keep_long and is_long and o_h[2]*1.001 >= running_ph and (o_h[1] < running_ph and o_c[1] < running_ph or o_h[2] > o_h[1] and o_h[1] > o_h)
+    closelong := true
 
-//plotshape(closeShort1 ? low : na, title="Logic1", style=shape.cross, location=location.absolute, color=color.gray, size=size.normal)
+next_short = false
+if is_long and shortCondition
+    closelong := true 
+    shortCondition := false
+    next_short := true
 
-//plotshape(closeShort2 ? low : na, title="Logic1", style=shape.cross, location=location.absolute, color=color.white, size=size.normal)
+if next_short[1]
+    shortCondition := true
 
-//if is_cross_down_rsi
-//    closeshort := false
+//if minutes > 0 and cnt_time_long > minutes and ta.crossunder(close, wma13) and barstate.isconfirmed
+//    closelong := true
+
+
+if closelong
+    is_long := false
+    cnt_time_long := 0
+
+closeshort = (down8m and up10m and wma13 < wma48 and math.abs(wma13-wma48) > 0.01  or not down8m and (hist < 0 and hist > hist[1] or trendUp > 1 or profit_short or bottomsupport and not is_cross_down) or down8m[1] and not down8m) and barstate.isconfirmed
+
+next_long = false
+if is_short and longCondition
+    closeshort := true
+    next_long := true
+    longCondition := false
+
+if next_long[1]
+    longCondition := true
+
+//if is_short and low[2]*0.9999 <= running_pl and low[1] > running_pl and close[1] > running_pl and low[3] > low[2] and low[2] < low[1]
+//    closeshort := true
+//if closeshort[1] and not longCondition and close > wma13 and close > wma48
+//    longCondition := true
+
+h = hour(time_close, 'UTC-8')
+m = minute(time_close, 'UTC-8')
+
+hold_trade = h >= 0 and h < 4 or h == 4 and m <= 30
+
+if (longCondition and not hold_trade)
+    strategy.entry("long", strategy.long) 
+
+// change param rsi + 4
+if (shortCondition  and not hold_trade)
+    strategy.entry("short", strategy.short)
+
+//if minutes > 0 and cnt_time_short > minutes and ta.crossover(close, wma13) and barstate.isconfirmed
+//    closeshort := true
+    
+if closeshort
+    is_short := false
+    cnt_time_short := 0
+   
 
 if(strategy.position_size > 0)
-    strategy.close(id="call", when=closelong)
+    strategy.close(id="long", when=closelong and not not_close_long)
 if(strategy.position_size < 0)
-    strategy.close(id="put", when = closeshort)
+    strategy.close(id="short", when = closeshort)
 
 
 if(strategy.position_size > 0)
-    strategy.exit(id='call', limit=longTake,stop = longStop)
+    strategy.exit(id='long', limit=longTake,stop = longStop)
 if(strategy.position_size < 0)
-    strategy.exit(id='put', limit=shortTake,stop = shortStop)
-
-
+    strategy.exit(id='short', limit=shortTake,stop = shortStop)
