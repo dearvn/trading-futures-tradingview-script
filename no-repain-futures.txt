@@ -183,9 +183,6 @@ wma8_11 = ta.wma(close, 3)
 wma_8_11 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=wma8_11, lookahead=barmerge.lookahead_on)
 //plot(wma_10_11, 'ema10_11', color.blue) 
 
-wma8_48 = ta.wma(close, 8)
-wma_8_48 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=wma8_48, lookahead=barmerge.lookahead_on)
-
 /////////////
 var bool cross_up_wma_10 = false
 var bool cross_down_wma_10 = false
@@ -528,7 +525,7 @@ signal = ta.wma(macd, signal_length)
 hist = macd - signal
 is_cross_macd_short = ta.crossover(macd, signal) and macd < 0 and signal < 0
 
-plotshape(is_cross_macd_short ? low : na, title="Less", style=shape.diamond, location=location.absolute, color=color.yellow, size=size.tiny)
+//plotshape(is_cross_macd_short ? low : na, title="Less", style=shape.diamond, location=location.absolute, color=color.yellow, size=size.tiny)
 
 
 //label.new(bar_index, low1d*0.999, text="*"+str.format("{0}", math.abs(wma13-wma48)), textcolor=color.yellow, style=label.style_triangleup, size=size.tiny)
@@ -542,7 +539,7 @@ plotshape(up10m ?  low1d*0.995: na, title="No Short", style=shape.xcross, locati
 
 
 
-plotshape(up10m and is_cross_res?  low: na, title="Go Strong", style=shape.xcross, location=location.absolute, color=color.orange, size=size.tiny)
+//plotshape(up10m and is_cross_res?  low: na, title="Go Strong", style=shape.xcross, location=location.absolute, color=color.orange, size=size.tiny)
 
 // close by macd end
 
@@ -587,17 +584,18 @@ if next_long[1]
 //if closeshort[1] and not longCondition and close > wma13 and close > wma48
 //    longCondition := true
 
-h = hour(time_close, 'UTC-8')
-m = minute(time_close, 'UTC-8')
+hr = hour(time_close, 'UTC-8')
+mi = minute(time_close, 'UTC-8')
 
-hold_trade = h >= 0 and h < 4 or h == 4 and m <= 30
+lock = input.bool(title = 'Lock Trade Pre Market and After Hour', defval = false)
+lock_trade = lock and (hr >= 13 or hr < 6 or hr == 6 and mi <= 30)
 
-if (longCondition and not hold_trade)
-    strategy.entry("long", strategy.long) 
+if (longCondition and not lock_trade)
+    strategy.entry("call", strategy.long) 
 
 // change param rsi + 4
-if (shortCondition  and not hold_trade)
-    strategy.entry("short", strategy.short)
+if (shortCondition  and not lock_trade)
+    strategy.entry("put", strategy.short)
 
 //if minutes > 0 and cnt_time_short > minutes and ta.crossover(close, wma13) and barstate.isconfirmed
 //    closeshort := true
@@ -608,12 +606,12 @@ if closeshort
    
 
 if(strategy.position_size > 0)
-    strategy.close(id="long", when=closelong and not not_close_long)
+    strategy.close(id="call", when=closelong and not not_close_long)
 if(strategy.position_size < 0)
-    strategy.close(id="short", when = closeshort)
+    strategy.close(id="put", when = closeshort)
 
 
 if(strategy.position_size > 0)
-    strategy.exit(id='long', limit=longTake,stop = longStop)
+    strategy.exit(id='call', limit=longTake,stop = longStop)
 if(strategy.position_size < 0)
-    strategy.exit(id='short', limit=shortTake,stop = shortStop)
+    strategy.exit(id='put', limit=shortTake,stop = shortStop)
