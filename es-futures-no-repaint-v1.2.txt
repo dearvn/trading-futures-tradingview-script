@@ -1,8 +1,8 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © binancash
+// © binanancash
 
 //@version=5
-strategy("Dev - Futures No repaint v1.2", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
+strategy("V1.2 Futures - No Repain ES", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
 
 
 stopPer = input(0.07, title='Stop Loss %') / 100 
@@ -37,7 +37,7 @@ lower_5= basis - (0.764*dev)
 lower_6= basis - (1*dev)
 p6 = plot(upper_6, color=color.red, linewidth=2, title="1")
 
-p5 = plot(upper_5, color=color.white, linewidth=1, title="0.764")
+//p5 = plot(upper_5, color=color.white, linewidth=1, title="0.764")
 
 //p4 = plot(upper_4, color=color.white, linewidth=1, title="0.618")
 
@@ -533,7 +533,7 @@ plot(signal_9, title="Signal", color=color.yellow)
 
 just_change_down = hist_2[1] > 0 and  hist_2 < 0
 is_weak_put = (just_change_down or just_change_down[1]) //and open[1] < open
-plotshape(is_weak_put? low : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.blue, size=size.huge)
+//plotshape(is_weak_put? low : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.blue, size=size.huge)
 
 //////////////////////MACD END
 
@@ -593,11 +593,11 @@ longCondition5 = start_bottom and ta.crossover(wma_3m_3, wma_5m_5) and avg[1] < 
 //plotshape(longCondition1 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.yellow, size=size.normal)
 //plotshape(longCondition2 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.white, size=size.normal)
 //plotshape(longCondition3 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.blue, size=size.normal)
-plotshape(longCondition4 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.gray, size=size.normal)
-plotshape(longCondition5 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.red, size=size.normal)
+//plotshape(longCondition4 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.gray, size=size.normal)
+//plotshape(longCondition5 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.red, size=size.normal)
 
 longCondition6 = buy_trend and bar_up and is_cross_res
-plotshape(longCondition6 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.red, size=size.huge)
+//plotshape(longCondition6 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.red, size=size.huge)
 
 
 longCondition7 = bar_up and buy_trend and is_cross_up and bottomsupport and is_strong_buy
@@ -669,7 +669,7 @@ macd_up = hist_2[1] < 0 and hist_2 > hist_2[1] and hist_2[2] < 0 and hist_2[1] <
 
 longCondition10 = longCondition9[1] and o_c > avg and o_c[1] > avg[1] and macd_up[1]//and o_c[2] < avg[2] and 
 
-plotshape(longCondition10 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.red, size=size.huge)
+//plotshape(longCondition10 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.red, size=size.huge)
 closeShort2 = wma3 < wma11 and open[1] > wma3[1] and open > wma11 and not (wma_3m_3[1] > wma_3m_3) and not (wma_5m_5[1] > wma_5m_5)  
 if closeShort2
     longCondition10 := false
@@ -679,7 +679,7 @@ if macd_12_26[1] > macd_12_26
 
 longCondition :=  longCondition10 or longCondition
 
-plotshape(is_longCondition11  ? low : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.blue, size=size.normal)
+//plotshape(is_longCondition11  ? low : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.blue, size=size.normal)
 
 
 if (longCondition) and not lock_time
@@ -701,7 +701,7 @@ shortCondition3 = bar_up[10] and bar_up[9] and bar_up[8] and bar_up[7] and bar_u
 
 shortCondition4 = bar_up[3] and bar_up[2] and not bar_up[1] and not bar_up and ta.crossunder(hk_l, wma_5m_5)
 weak_put_uper = avg > upper_1 and upper_1[1] < upper_1 and ta.crossunder(open, avg)
-plotshape(weak_put_uper ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.white, size=size.huge)
+//plotshape(weak_put_uper ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.white, size=size.huge)
 if weak_put_uper or weak_put_uper[1]
     shortCondition4 := false
 
@@ -720,12 +720,12 @@ plotshape(weak_put_uper_2 or weak_put_uper_2[1]  ? high : na, title="Logic1", st
 
 shortCondition7 = o_c*0.94 < wma13 and rsi + 8 < rsi[1] or rsi + 8 < rsi[1] and short
 
-plotshape(shortCondition1 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.white, size=size.normal)
-plotshape(shortCondition2 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.orange, size=size.normal)
-plotshape(shortCondition3 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.yellow, size=size.normal)
+//plotshape(shortCondition1 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.white, size=size.normal)
+//plotshape(shortCondition2 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.orange, size=size.normal)
+//plotshape(shortCondition3 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.yellow, size=size.normal)
 //plotshape(shortCondition4 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.blue, size=size.huge)
 
-plotshape(shortCondition5 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.red, size=size.huge)
+//plotshape(shortCondition5 ? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.red, size=size.huge)
 
 weak_put_uper_3 = ta.crossover(avg, upper_1) and profit_short and upper_1[1] > upper_1
 // TODO1 60%
@@ -733,7 +733,7 @@ weak_put_uper_3 = ta.crossover(avg, upper_1) and profit_short and upper_1[1] > u
 //    shortCondition5 := false
 plotshape(weak_put_uper_3 and upper_1[1] > upper_1? high : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.white, size=size.huge)
 
-plotshape(shortCondition6 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.purple, size=size.normal)
+//plotshape(shortCondition6 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.purple, size=size.normal)
 if weak_put_uper_2 or weak_put_uper_2[1]
     shortCondition6 := false
     shortCondition4 := false
@@ -800,9 +800,9 @@ if is_cross_down_basis and is_cross_down_lower_1 and open < lower_1 and avg[1] >
 //plotshape(shortCondition8 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.gray, size=size.normal)
 
 
-plotshape(closeShort1 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.white, size=size.normal)
-plotshape(closeShort2 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.purple, size=size.normal)
-plotshape(closeShort3 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.orange, size=size.normal)
+//plotshape(closeShort1 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.white, size=size.normal)
+//plotshape(closeShort2 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.purple, size=size.normal)
+//plotshape(closeShort3 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.orange, size=size.normal)
 
 
 closeshort = closeShort1 or closeShort2 or closeShort3 //or closeShort4
