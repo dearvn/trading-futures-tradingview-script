@@ -1,4 +1,4 @@
-## Using to alert on 1M ES without REPAINT time trading from 7:30AM to 12:30 PM UTC-8
+## Using to alert on 1M ES without REPAINT time trading from 6:30AM to 12:30 PM UTC-8
 `es-futures-no-repaint-v1.x.txt`
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/alerts.png?raw=true "alerts")
