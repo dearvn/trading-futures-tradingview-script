@@ -1,6 +1,8 @@
 ## Using to alert on 1M ES without REPAINT time trading from 6:30AM to 12:30 PM UTC-8
+
 Alert to auto trade using timeframe 1M: `es-futures-no-repaint-v1.x.txt`
-Manual trading timeframe 30s: `es-futures-repaint-30s.txt`
+
+Review history timeframe 30s: `es-futures-repaint-30s.txt`
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/alerts.png?raw=true "alerts")
 
