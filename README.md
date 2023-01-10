@@ -1,5 +1,11 @@
 If you win, please support me on Paypal: clickclone@gmail.com
 
+## Trading GOLD
+ 
+Using script `GOLD_UZ_OZ.txt`
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/gold.png?raw=true "Gold")
+
 
 ## Using the latest version of `es-futures-no-repaint-v1.x.txt` to alert on 1M ES without REPAINT time trading from 6:30AM to 12:30 PM UTC-8
 
