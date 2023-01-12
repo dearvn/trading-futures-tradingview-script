@@ -1,5 +1,9 @@
 If you win, please support me on Paypal: clickclone@gmail.com
 
+## Script Trading ES 20223
+
+Please use this one with timeframe 5M: `https://github.com/dearvn/trading-futures-tradingview-script/blob/main/ESH2023-5M.txt`
+
 ## Trading GOLD
  
 Using script `GOLD_UZ_OZ.txt`
