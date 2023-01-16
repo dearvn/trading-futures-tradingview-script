@@ -2,7 +2,7 @@
 // © thinhdangho
 
 //@version=5
-strategy("ESH2023 5M - No repaint v1.1 2023", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
+strategy("ESH2023 5M - No repaint V1.1", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
 
 
 stopPerCall = input(0.9, title='Stop Loss Call %') / 100 
@@ -17,6 +17,40 @@ shortTake = strategy.position_avg_price * (1 - takePerPut)
 longTake = strategy.position_avg_price * (1 + takePerCall)
 
 
+///////////////////////////////////////////
+
+
+o_h = math.max(open[3], open[2], open[1])
+o_l = math.min(open[3], open[2], open[1])
+o_o = open[1]
+o_c = open
+
+src(_src)  => 
+    Close  = (o_h + o_l + o_o + o_c)/4
+    Open  = (o_o + o_c) / 2
+    High   = math.max(o_h, math.max(Open, Close))
+    Low    = math.min(o_l,  math.min(Open, Close))
+    HL2    = math.avg(High, Low) 
+    HLC3   = math.avg(High, Low, Close) 
+    OHLC4  = math.avg(Open, High, Low, Close)
+    Price  = _src == 'close' ? Close : _src == 'open' ? Open : _src == 'high' ? High : _src == 'low' ? Low : _src == 'hl2' ? HL2 : _src == 'hlc3' ? HLC3 : OHLC4  
+    Source = math.round(Price / syminfo.mintick) * syminfo.mintick  // PineCoders method for aligning Pine prices with chart instrument prices
+
+// === PLOTTING ===
+hk_c = src('close')
+hk_o = src('open')
+hk_h = src('high')
+hk_l = src('low')
+bar_up  = hk_c < hk_o
+bar_down  = hk_c >= hk_o
+
+ochl = src('olch4')
+
+barColor   = o_c < o_o ? color.red : color.purple  // series color
+bar_up_oc = o_c > o_o
+bar_down_oc = o_c <= o_o
+//plotcandle(o_o, o_h, o_l, o_c, title = "", color = barColor, wickcolor = barColor, bordercolor = barColor)  // plot bars
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////
@@ -24,7 +58,6 @@ longTake = strategy.position_avg_price * (1 + takePerCall)
 periodK = input.int(title="K", minval=1, defval=9)
 periodD = input.int(title="D", minval=1, defval=3)
 smoothK = input.int(title="Smooth", minval=1, defval=3)
-src_st = open
 
 obLevel = input.int(title="Overbought Level", defval=80)
 osLevel = input.int(title="Oversold Level", defval=20)
@@ -36,8 +69,34 @@ highlightCrossovers = input.bool(title="Highlight K/D Crossovers ?", defval=true
 highlightMiddleCrossovers = input.bool(title="Highlight Middle Line Crossovers ?", defval=true)
 applyRibbonFilling = input.bool(title="Apply Ribbon Filling ?", defval=true)
 
-k = ta.sma(ta.stoch(src_st, high, low, periodK), smoothK)
+avg = (open[9] + open[8] + open[7] + open[6] + open[5] + open[4] + open[3] + open[2] + open[1] + open)/10
+
+k = ta.sma(ta.stoch(avg, high, low, periodK), smoothK)
 d = ta.sma(k, periodD)
+
+k10 = request.security(symbol=syminfo.tickerid, timeframe="10", expression=k, lookahead=barmerge.lookahead_on)
+d10 = request.security(symbol=syminfo.tickerid, timeframe="10", expression=d, lookahead=barmerge.lookahead_on)
+
+k18 = request.security(symbol=syminfo.tickerid, timeframe="18", expression=k, lookahead=barmerge.lookahead_on)
+d18 = request.security(symbol=syminfo.tickerid, timeframe="18", expression=d, lookahead=barmerge.lookahead_on)
+
+kd18_up = ta.crossover(k18, d18)
+kd18_down = ta.crossunder(k18, d18)
+is_trendup_kd18 = false
+is_trenddown_kd18 = false
+
+if kd18_up and k18 < 20
+    is_trendup_kd18 := true
+    is_trenddown_kd18 := false
+if kd18_down and k18 > 79
+    is_trendup_kd18 := false
+    is_trenddown_kd18 := true
+
+plotshape(kd18_up and k18 < 20 ? low : na, title="K/D Crossover", location=location.absolute, style=shape.xcross, size=size.normal, color=color.yellow)
+plotshape(kd18_down and k18 > 79 ? high : na, title="K/D Crossover", location=location.absolute, style=shape.xcross, size=size.normal, color=color.white)
+
+
+
 
 trendColor = k > d ? #0ebb23 : color.red
 kColor = applyRibbonFilling ? trendColor : #ff3e7d
@@ -78,7 +137,6 @@ fillColor = applyRibbonFilling ? trendColor : na
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 low1d = request.security(symbol=syminfo.tickerid, timeframe="D", expression=low, lookahead=barmerge.lookahead_on)
-avg = (open[9] + open[8] + open[7] + open[6] + open[5] + open[4] + open[3] + open[2] + open[1] + open)/10
 
 
 //////////////////////////////////////////////////////////////
@@ -88,40 +146,6 @@ open8 = request.security(symbol=syminfo.tickerid, timeframe="8", expression=open
 open10 = request.security(symbol=syminfo.tickerid, timeframe="10", expression=open, lookahead=barmerge.lookahead_on)
 
 
-
-///////////////////////////////////////////
-
-
-o_h = math.max(open[3], open[2], open[1])
-o_l = math.min(open[3], open[2], open[1])
-o_o = open[1]
-o_c = open
-
-src(_src)  => 
-    Close  = (o_h + o_l + o_o + o_c)/4
-    Open  = (o_o + o_c) / 2
-    High   = math.max(o_h, math.max(Open, Close))
-    Low    = math.min(o_l,  math.min(Open, Close))
-    HL2    = math.avg(High, Low) 
-    HLC3   = math.avg(High, Low, Close) 
-    OHLC4  = math.avg(Open, High, Low, Close)
-    Price  = _src == 'close' ? Close : _src == 'open' ? Open : _src == 'high' ? High : _src == 'low' ? Low : _src == 'hl2' ? HL2 : _src == 'hlc3' ? HLC3 : OHLC4  
-    Source = math.round(Price / syminfo.mintick) * syminfo.mintick  // PineCoders method for aligning Pine prices with chart instrument prices
-
-// === PLOTTING ===
-hk_c = src('close')
-hk_o = src('open')
-hk_h = src('high')
-hk_l = src('low')
-bar_up  = hk_c < hk_o
-bar_down  = hk_c >= hk_o
-
-ochl = src('olch4')
-
-barColor   = o_c < o_o ? color.red : color.purple  // series color
-bar_up_oc = o_c > o_o
-bar_down_oc = o_c <= o_o
-//plotcandle(o_o, o_h, o_l, o_c, title = "", color = barColor, wickcolor = barColor, bordercolor = barColor)  // plot bars
 
 
 
@@ -305,6 +329,14 @@ avg_change = (math.abs(open[10] - open[9]) + math.abs(open[9] - open[8]) + math.
 
 up_resistance = is_up_avg and open > running_ph
 down_resistance = is_down_avg and open < running_ph and avg_wma_21[1] > avg_wma_21
+
+//if is_trendup_kd18
+//    down_resistance := false
+//    up_resistance := true
+
+//if is_trenddown_kd18
+//    down_resistance := true
+//    up_resistance := false
 
 plotshape(down_resistance? low1d*0.994 : na, title="Avg", style=shape.circle, location=location.absolute, color=color.white, size=size.tiny)
 
@@ -808,7 +840,7 @@ if k > 50
     longCondition14 := false
     longCondition4 := false
 plotshape(longCondition13 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.yellow, size=size.normal)
-//plotshape(longCondition14 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.white, size=size.normal)
+plotshape(longCondition14 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.white, size=size.normal)
 //plotshape(longCondition3 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.blue, size=size.normal)
 plotshape(longCondition4 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.gray, size=size.normal)
 //plotshape(longCondition5 ? low : na, title="Logic1", style=shape.circle, location=location.absolute, color=color.red, size=size.normal)
@@ -835,7 +867,7 @@ if ta.crossunder(wma_3m_3, wma_5m_5) or hist[1] > hist or not bar_up//or continu
 
 hr = hour(time_close, 'UTC-8')
 mi = minute(time_close, 'UTC-8')
-lock_time = false //hr >= 13 or hr == 12 and mi > 30 or hr < 4 or hr == 4 and mi < 30
+lock_time = hr >= 13 or hr == 12 and mi > 30 or hr < 4 or hr == 4 and mi < 30
 
 //label.new(bar_index, low1d, text=str.format("{0}", h ), textcolor=color.yellow, style=label.style_triangleup, size=size.normal)
 
@@ -861,17 +893,23 @@ longCondition15 = (stoc_crossup[1] or stoc_crossup) and open > avg and k[1] < 30
 var is_longCondition15 = false
 if longCondition15
     is_longCondition15 := true
-if cross_down_avg[1] or cross_down_avg[2]
+if cross_down_avg[1] or cross_down_avg[2] //or k18[1] > k18
     longCondition15 := false
 
-//plotshape(longCondition15 ? low : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.white, size=size.huge)
+plotshape(longCondition15 ? low : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.white, size=size.normal)
 
 stoc_crossdown = highlightCrossovers and ta.crossunder(k, d)
 
 shortCondition15 = not down_resistance[1] and down_resistance //(stoc_crossdown[1] or stoc_crossdown) and k[1] > 80 //and avg > avg_wma_21
-//if k < 20
+//if k < 30 and k10 < 30
 //    shortCondition15 := false
-plotshape(shortCondition15 ? high : na, title="Logic1", style=shape.triangledown, location=location.absolute, color=color.white, size=size.huge)
+
+
+longCondition16 = kd18_up and k18 < 20 and open > running_ph
+
+plotshape(longCondition16 ? high : na, title="Logic1", style=shape.triangleup, location=location.absolute, color=color.white, size=size.normal)
+
+
 
 //if (d > 60)
 //    longCondition := false
@@ -880,7 +918,7 @@ longCondition :=  longCondition10 or longCondition
 if down_resistance
     longCondition := false
 
-longCondition :=   longCondition15 or longCondition
+longCondition :=   longCondition15 or longCondition or longCondition16
 
 //plotshape(is_longCondition11  ? low : na, title="Logic1", style=shape.xcross, location=location.absolute, color=color.blue, size=size.normal)
 
@@ -972,8 +1010,10 @@ if weak_put_uper_2 or weak_put_uper_2[1]
     shortCondition4 := false
 
     
+shortCondition16 = (kd18_down and k18 > 79 or kd18_down[1] and k18[1] > 79) and open < avg     
+plotshape(shortCondition16 ? high : na, title="Logic1", style=shape.diamond, location=location.absolute, color=color.purple, size=size.normal)
 
-shortCondition = shortCondition15 //or shortCondition7 //or shortCondition4 or shortCondition5 or shortCondition6 or shortCondition7
+shortCondition = shortCondition15 //or shortCondition16 //or shortCondition7 //or shortCondition4 or shortCondition5 or shortCondition6 or shortCondition7
 //if not down_resistance
 //    shortCondition := false
 
@@ -983,7 +1023,7 @@ shortCondition = shortCondition15 //or shortCondition7 //or shortCondition4 or s
 if bar_up or macd_12_26[1] < macd_12_26 or rsiMA[1] < rsiMA or up_resistance
     shortCondition := false
 
-//shortCondition := shortCondition or shortCondition8
+shortCondition := shortCondition //or shortCondition16
 if (shortCondition)  and not lock_time
     strategy.entry("put", strategy.short)
 
@@ -1107,6 +1147,8 @@ if is_cross_down_basis and is_cross_down_lower_1 and open < lower_1 and avg[1] >
 
 closeshort = closeShort1 or closeShort2 or closeShort3 //or closeShort4
 
+if down_resistance and open < avg_wma_21
+    closeshort := false
 if open < open[1] //or down_resistance and avg_wma_21[1] > avg_wma_21
     closeshort := false
 
