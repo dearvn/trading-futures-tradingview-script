@@ -1,5 +1,5 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © thinhdangho
+// © binancash
 
 //@version=5
 strategy("ESH2023 5M - No repaint V1.1", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
@@ -55,7 +55,7 @@ bar_down_oc = o_c <= o_o
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////
 
-periodK = input.int(title="K", minval=1, defval=9)
+periodK = input.int(title="K", minval=1, defval=7)
 periodD = input.int(title="D", minval=1, defval=3)
 smoothK = input.int(title="Smooth", minval=1, defval=3)
 
@@ -71,7 +71,10 @@ applyRibbonFilling = input.bool(title="Apply Ribbon Filling ?", defval=true)
 
 avg = (open[9] + open[8] + open[7] + open[6] + open[5] + open[4] + open[3] + open[2] + open[1] + open)/10
 
-k = ta.sma(ta.stoch(avg, high, low, periodK), smoothK)
+h = math.max(open[2], open[1], open)
+l = math.min(open[2], open[1], open)
+
+k = ta.sma(ta.stoch(avg, h, l, periodK), smoothK)
 d = ta.sma(k, periodD)
 
 k10 = request.security(symbol=syminfo.tickerid, timeframe="10", expression=k, lookahead=barmerge.lookahead_on)
