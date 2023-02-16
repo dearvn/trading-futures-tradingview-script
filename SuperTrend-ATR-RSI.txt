@@ -1,0 +1,44 @@
+//Crée par J.Dow
+//SuperTrend ATR, Le type ATR calcule la volatilité à partir de l'Average True Range (ATR), il est idéal pour le FOREX
+// Le RSI et idéal pour voir la force d'un mouvement
+//@version=5
+indicator(title = "SuperTrend ATR + RSI", shorttitle = "SuperTrend ATR + RSI", overlay = true)
+
+//Mode
+Factor=input.int(title="Super Trend", defval=3, minval=1,maxval = 100)
+ATR=input.int(title="ATR", defval=7, minval=1,maxval = 100)
+RSI = input.int(title="RSI", defval=7, minval=1, maxval = 100)
+
+//Super Trend ATR
+Up=hl2-(Factor*ta.atr(ATR))
+Dn=hl2+(Factor*ta.atr(ATR))
+
+TUp = Up
+TUp := close[1]>TUp[1]? math.max(Up,TUp[1]) : Up
+TDown = Dn
+TDown := close[1]<TDown[1]? math.min(Dn,TDown[1]) : Dn
+
+Trend = 1
+Trend := close > TDown[1] ? 1: close< TUp[1]? -1: nz(Trend[1],1)
+Tsl = Trend==1? TUp: TDown
+
+linecolor = Trend == 1 ? color.green : color.red
+
+//RSI
+src = close,
+
+ep = 2 * RSI - 1
+auc = ta.ema( math.max( src - src[1], 0 ), ep )
+adc = ta.ema( math.max( src[1] - src, 0 ), ep )
+x1 = (RSI - 1) * ( adc * 70 / (100-70) - auc)
+ub = src + x1
+if ( x1 < 0 )
+    ub := src + x1 * (100-70)/70
+x2 = (RSI - 1) * ( adc * 30 / (100-30) - auc)
+lb = src + x2
+if( x2 < 0 )
+    lb := src + x2 * (100-30)/30
+
+//Affichage
+plot(math.avg(ub, lb), color=color.purple, style = plot.style_line, linewidth=1, title="RSI")
+plot(Tsl, color = linecolor , style = plot.style_line , linewidth = 1,title = "SuperTrend ATR")
