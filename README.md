@@ -1,5 +1,9 @@
 If you win, please support me on Paypal: clickclone@gmail.com
 
+## New update
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/new.png?raw=true "ESU2023")
+
 ## Script Trading ES 20223
 
 Please use this one with timeframe 5M: `https://github.com/dearvn/trading-futures-tradingview-script/blob/main/ESH2023-5M.txt`
