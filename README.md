@@ -1,4 +1,9 @@
 If you win, please support me on Paypal: clickclone@gmail.com
+## BEST Trading manually
+
+```bash
+ES1M-BEST.txt
+```
 
 ## New update
 
