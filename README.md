@@ -7,6 +7,9 @@ The best way to use this Indicator is when you encounter a signal, refresh it to
 ES1M-BEST.txt
 ```
 
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/best.png?raw=true "ESU2023")
+
+
 ## New update
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/new.png?raw=true "ESU2023")
