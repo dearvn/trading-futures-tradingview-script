@@ -1,6 +1,8 @@
 If you win, please support me on Paypal: clickclone@gmail.com
 ## BEST Trading manually
 
+The best way to use this Indicator is when you encounter a signal, refresh it to confirm whether it has occurred or not. If it happens then go according to this signal.
+
 ```bash
 ES1M-BEST.txt
 ```
