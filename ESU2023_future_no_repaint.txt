@@ -5,11 +5,11 @@
 strategy("V1.4 ESU2023 - Futures 1M No repaint", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
 
 
-stopPerCall = input(0.07, title='Stop Loss Call %') / 100 
-takePerCall = input(0.03, title='Take Profit Call %') / 100
+stopPerCall = input(0.08, title='Stop Loss Call %') / 100 
+takePerCall = input(0.02, title='Take Profit Call %') / 100
 
 stopPerPut = input(0.07, title='Stop Loss Put %') / 100 
-takePerPut = input(0.03, title='Take Profit Put %') / 100
+takePerPut = input(0.02, title='Take Profit Put %') / 100
 
 longStop = strategy.position_avg_price * (1 - stopPerCall)
 shortStop = strategy.position_avg_price * (1 + stopPerPut)
