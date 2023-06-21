@@ -710,7 +710,7 @@ end_up_1 = open[4] < open[3] and open[3] < open[2] and open[2] > open[1] and ope
 
 hr = hour(time_close, 'UTC-7')
 mi = minute(time_close, 'UTC-7')
-lock_time = hr >= 13 or hr == 12 and mi > 30 or hr < 6 or hr == 6 and mi < 30
+lock_time = hr >= 13 or hr == 12 and mi > 45 or hr < 7
 
 //label.new(bar_index, low1d, text=str.format("{0}", h ), textcolor=color.yellow, style=label.style_triangleup, size=size.normal)
 
