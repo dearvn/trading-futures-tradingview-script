@@ -1,0 +1,94 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © binancash
+
+//@version=5
+strategy("ESU2023-10M - V1", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
+
+
+stopPerCall = input(0.08, title='Stop Loss Call %') / 100 
+takePerCall = input(0.02, title='Take Profit Call %') / 100
+
+stopPerPut = input(0.07, title='Stop Loss Put %') / 100 
+takePerPut = input(0.03, title='Take Profit Put %') / 100
+
+longStop = strategy.position_avg_price * (1 - stopPerCall)
+shortStop = strategy.position_avg_price * (1 + stopPerPut)
+shortTake = strategy.position_avg_price * (1 - takePerPut)
+longTake = strategy.position_avg_price * (1 + takePerCall)
+
+
+//Inputs
+ma_length = input(3)
+
+//Three Bar High/Low Moving Average
+ma_high = ta.sma(high, ma_length)
+ma_low = ta.sma(low, ma_length)
+plot(ma_high, linewidth = 1)
+plot(ma_low, linewidth = 1)
+
+//Trend Reversal - Up
+trend_reversal_up = low[2] > low[1] and low[1] < low and high > high[1]
+plotshape(trend_reversal_up ? 1: na, color = color.orange, location = location.belowbar, style = shape.arrowup, text = 'U')
+
+//Trend Reversal - Down
+trend_reversal_down = high[2] < high[1] and high[1] > high and low < low[1]
+plotshape(trend_reversal_down ? -1: na, color = color.navy, location = location.abovebar, style = shape.arrowdown, text = 'D')
+
+//Short Term Low
+short_term_low = low[2] > low[1] and low[1] < low and high[1] < high[2] and high > high[1]
+plotshape(short_term_low ? 1: na, color = #00EEEE, location = location.belowbar, style = shape.arrowup)
+
+//Short Term High
+short_term_high = high[2] < high[1] and high[1] > high and low[1] > low[2] and low < low[1]
+plotshape(short_term_high ? -1: na, color = #00EEEE, location = location.abovebar, style = shape.arrowdown)
+
+//Trend Change Point - Up
+float trend_change_up = na
+trend_change_up := high > high[1] ? 1 : na
+line1 = short_term_low and trend_change_up
+color_up = #FFEB3B
+color up = na
+up := trend_change_up ? color_up : na
+plot(line1 ? high[1] : na, color = up, linewidth = 2)
+
+plotshape(line1 ? low : na, title="Buy", text="Buy", style=shape.triangleup, location=location.belowbar, color=color.white, size=size.normal)
+
+
+//Trend Change Point - Down
+float trend_change_down = na
+trend_change_down := low < low[1] ? 1 : na
+line2 = short_term_high and trend_change_down
+color_down = #E040FB
+color down = na
+down := trend_change_down ? color_down : na
+plot(line2 ? low[1] : na, color=down, linewidth = 2)
+
+plotshape(line2 ? high : na, title="Sell", text="Sell", style=shape.triangledown, location=location.abovebar, color=color.blue, size=size.normal)
+
+
+//Bar Color Trend Change
+coloryellow = #FFEB3B
+colorfuchsia = #E040FB
+barcolor(line1 ? coloryellow : line2 ? colorfuchsia : na)
+
+
+if line1 and short_term_low
+    strategy.entry("call", strategy.long)
+
+if line2 and short_term_high
+    strategy.entry("put", strategy.short)
+
+
+if(strategy.position_size > 0 and (trend_reversal_down or trend_change_down))
+    strategy.close(id="call")
+
+if(strategy.position_size < 0 and (trend_reversal_up or trend_change_up))
+    strategy.close(id="put")
+
+
+if(strategy.position_size > 0)
+    strategy.exit(id='call', limit=longTake,stop = longStop)
+    //call_price := 0.0
+
+if(strategy.position_size < 0)
+    strategy.exit(id='put', limit=shortTake,stop = shortStop)
