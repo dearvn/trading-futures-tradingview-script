@@ -49,9 +49,9 @@ line1 = short_term_low and trend_change_up
 color_up = #FFEB3B
 color up = na
 up := trend_change_up ? color_up : na
-//plot(line1 ? high[1] : na, color = up, linewidth = 2)
+plot(line1 ? high[1] : na, color = up, linewidth = 2)
 
-//plotshape(line1 ? low : na, title="Buy", text="Buy", style=shape.triangleup, location=location.belowbar, color=color.white, size=size.normal)
+plotshape(line1 ? low : na, title="Buy", text="Buy", style=shape.triangleup, location=location.belowbar, color=color.white, size=size.normal)
 
 
 //Trend Change Point - Down
@@ -61,9 +61,9 @@ line2 = short_term_high and trend_change_down
 color_down = #E040FB
 color down = na
 down := trend_change_down ? color_down : na
-//plot(line2 ? low[1] : na, color=down, linewidth = 2)
+plot(line2 ? low[1] : na, color=down, linewidth = 2)
 
-//plotshape(line2 ? high : na, title="Sell", text="Sell", style=shape.triangledown, location=location.abovebar, color=color.blue, size=size.normal)
+plotshape(line2 ? high : na, title="Sell", text="Sell", style=shape.triangledown, location=location.abovebar, color=color.blue, size=size.normal)
 
 
 //Bar Color Trend Change
@@ -72,10 +72,15 @@ colorfuchsia = #E040FB
 barcolor(line1 ? coloryellow : line2 ? colorfuchsia : na)
 
 
-if line1 //trend_reversal_up or trend_change_up
+hr = hour(time_close, 'UTC-7')
+mi = minute(time_close, 'UTC-7')
+lock_time = hr >= 13 or hr == 12 and mi > 45 or hr < 6
+
+
+if line1 and short_term_low and not lock_time
     strategy.entry("call", strategy.long)
 
-if line2 //trend_reversal_down or trend_change_down
+if line2 and short_term_high and not lock_time
     strategy.entry("put", strategy.short)
 
 
