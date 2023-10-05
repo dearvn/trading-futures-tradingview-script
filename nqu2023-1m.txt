@@ -2,7 +2,7 @@
 // © binancash
 
 //@version=5
-strategy("Williams Strategy - V1", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
+strategy("Williams Strategy - Alert", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1 )
 
 
 stopPerCall = input(0.05, title='Stop Loss Call %') / 100 
@@ -72,23 +72,23 @@ colorfuchsia = #E040FB
 barcolor(line1 ? coloryellow : line2 ? colorfuchsia : na)
 
 
-if trend_reversal_up
+if trend_reversal_up and time>timestamp(2023, 08, 01, 09, 30)
     strategy.entry("call", strategy.long)
 
-if trend_reversal_down
+if trend_reversal_down and time>timestamp(2023, 08, 01, 09, 30)
     strategy.entry("put", strategy.short)
 
 
-if(strategy.position_size > 0 and trend_change_down)
+if(strategy.position_size > 0 and trend_change_down) and time>timestamp(2023, 08, 01, 09, 30)
     strategy.close(id="call")
 
-if(strategy.position_size < 0 and trend_change_up)
+if(strategy.position_size < 0 and trend_change_up) and time>timestamp(2023, 08, 01, 09, 30)
     strategy.close(id="put")
 
 
-if(strategy.position_size > 0)
-    strategy.exit(id='call', limit=longTake,stop = longStop)
+if(strategy.position_size > 0) and time>timestamp(2023, 08, 01, 09, 30)
+    strategy.exit(id='call', limit=longTake,stop = longStop) 
     //call_price := 0.0
 
-if(strategy.position_size < 0)
+if(strategy.position_size < 0) and time>timestamp(2023, 08, 01, 09, 30)
     strategy.exit(id='put', limit=shortTake,stop = shortStop)
