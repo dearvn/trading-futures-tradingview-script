@@ -1,0 +1,44 @@
+//@version=5
+indicator(title="Snag - Market Moving", shorttitle="Snag - Market Moving", max_bars_back=4999)
+
+
+wma200 = ta.wma(close, 200)
+wma200_2 = request.security(symbol=syminfo.tickerid, timeframe="2", expression=wma200, lookahead=barmerge.lookahead_on)
+close_2 = request.security(symbol=syminfo.tickerid, timeframe="2", expression=close, lookahead=barmerge.lookahead_on)
+
+var float wma200_last = na
+var float close200_last = na
+var float wma200_yesterday = na
+var float close200_yesterday = na
+
+if hour(time_close, "UTC-7") == 13 and minute(time_close, "UTC-7") == 00 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    wma200_yesterday := wma200_2
+    close200_yesterday := close
+
+if hour(time_close, "UTC-7") == 6 and minute(time_close, "UTC-7") == 30 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    //wma200_last := wma200_15
+    //close200_last := close_15
+    wma200_last := wma200_2
+    close200_last := close_2
+
+
+//wma200_diff = close-wma200_15
+wma200_diff = close_2-wma200_2
+
+hr = hour(timenow, 'UTC-7')
+mi = minute(timenow, 'UTC-7')
+
+lock_time = hr >= 13 or hr < 6 or hr == 6 and mi < 1
+
+if not lock_time
+    //alert('{"wma200":'+str.tostring(wma200_15)+',"wma200[1]":'+str.tostring(wma200_15[1])+',"wma200[2]":'+str.tostring(wma200_15[2])+',"wma200_last":'+str.tostring(wma200_last)+',"wma200_diff":'+str.tostring(wma200_diff)+',"current_price":'+str.tostring(close)+',"close":'+str.tostring(close_15)+',"close[1]":'+str.tostring(close_15[1])+',"close[2]":'+str.tostring(close_15[2])+',"close_last":'+str.tostring(close200_last)+'}', alert.freq_once_per_bar)
+    alert('{"wma200":'+str.tostring(wma200_2)+',"wma200[1]":'+str.tostring(wma200_2[1])+',"wma200[2]":'+str.tostring(wma200_2[2])+',"wma200_last":'+str.tostring(wma200_last)+',"wma200_diff":'+str.tostring(wma200_diff)+',"current_price":'+str.tostring(close_2)+'"}', alert.freq_once_per_bar)
+
+
+
+var table panel = table.new("top_right", 6, 20)
+table.cell(panel, 0, 1, str.format("Time h:{0} m:{1} lock_time:{2}", hr, mi, lock_time), bgcolor=color.new(#660990,70), text_color=color.white, width=18, text_halign=text.align_left)
+table.cell(panel, 0, 2, str.format("EMA Diff {0} {1}", str.tostring(close_2), str.tostring(wma200_diff)), bgcolor=color.new(#660990,70), text_color=color.white, width=18, text_halign=text.align_left)
+
+plot(wma200_diff, color = color.yellow)
+plot(close)
