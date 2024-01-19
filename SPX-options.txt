@@ -1,0 +1,67 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © donaldit.net
+
+//@version=5
+//@version=5
+indicator(title="Donald SPX - Options Trading", shorttitle="Donald SPX - Options Trading", max_bars_back=4999)
+
+var float open15_6h30 = na
+
+var float wma200_last = na
+var float open200_6h30 = na
+var float wma200_yesterday = na
+var float close200_yesterday = na
+var float open15_6h45 = na
+
+var int start_time_ema = na
+var float open_ema_diff = 0.0
+var float open_ema = 0.0
+
+wma_200 = ta.wma(close, 200)
+
+last_close_1d = request.security(symbol=syminfo.tickerid, timeframe="D", expression=close[1], lookahead=barmerge.lookahead_on)
+close15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=close, lookahead=barmerge.lookahead_on)
+open15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=open, lookahead=barmerge.lookahead_on)
+close5 = request.security(symbol=syminfo.tickerid, timeframe="5", expression=close, lookahead=barmerge.lookahead_on)
+
+wma200_15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=wma_200, lookahead=barmerge.lookahead_on)
+close_2 = request.security(symbol=syminfo.tickerid, timeframe="2", expression=close, lookahead=barmerge.lookahead_on)
+wma200_2 = request.security(symbol=syminfo.tickerid, timeframe="2", expression=wma_200, lookahead=barmerge.lookahead_on)
+close_1d = request.security(symbol=syminfo.tickerid, timeframe="D", expression=close, lookahead=barmerge.lookahead_on)
+
+
+plot(wma_200, title="WMA200", color=color.blue)
+
+
+if hour(time_close, "UTC-8") == 13 and minute(time_close, "UTC-8") == 00 //and second(time_close, "UTC-8") == 00 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    wma200_yesterday := wma200_2
+    close200_yesterday := close_1d
+
+if hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") == 30 //and second(time_close, "UTC-8") == 00 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    wma200_last := wma200_2
+    open200_6h30 := close
+
+if hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") <= 45 and second(time_close, "UTC-8") == 00 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    open15_6h45 := close15
+    open15_6h30 := open15
+
+//wma200_diff = close-wma200_15
+wma200_diff = close_2 - wma200_2
+wma200_diff15 = close15 - wma200_15
+change_15m = open15_6h45 - open15_6h30
+
+if barstate.islast
+    // Make a new box that immediately uses the input's box style
+
+    var table panel5 = table.new("bottom_right", 6, 50)
+      
+    table.cell(panel5, 0, 6)
+
+    
+    table.cell(panel5, 0, 1, str.format("Open 6h30: {0}", open15_6h30), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
+    table.cell(panel5, 0, 2, str.format("Close 6h30: {0}", open15_6h45), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
+    table.cell(panel5, 0, 3, str.format("Change 6h30-6h45: {0}", change_15m), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
+    table.cell(panel5, 0, 4, str.format("Close yesterday: {0}", close200_yesterday), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
+ 
+    table.cell(panel5, 0, 5, str.format("Strike trading: {0}", int(open15_6h45-open15_6h45%5)), bgcolor=color.new(#660990,70), text_color=color.yellow, width=20, text_halign=text.align_left)
+    
