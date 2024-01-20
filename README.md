@@ -1,3 +1,13 @@
+# Trading $SPX options
+
+Timeframe: 15M, Ticker $SPX
+
+Refs https://www.patreon.com/collection/333532?view=expanded
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/supr-box.png?raw=true "SPX")
+
+
+
 If you win, please support me on Paypal: clickclone@gmail.com
 ## BEST Trading manually
 
