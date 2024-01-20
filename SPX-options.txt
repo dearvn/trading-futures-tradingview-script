@@ -1,9 +1,10 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © donaldit.net
+// © thinhdangho
 
 //@version=5
 //@version=5
-indicator(title="Donald SPX - Options Trading", shorttitle="Donald SPX - Options Trading", max_bars_back=4999)
+indicator(title="Donald SPX - Options Trading", shorttitle="Donald SPX - Options Trading", max_bars_back=4999, overlay = true)
+
 
 var float open15_6h30 = na
 
@@ -50,6 +51,25 @@ wma200_diff = close_2 - wma200_2
 wma200_diff15 = close15 - wma200_15
 change_15m = open15_6h45 - open15_6h30
 
+
+// IF EMA_DIFF MOVING FROM  0.50 to 0.10 THEN PUT
+// TODO
+var color clr1 = na
+var string msg1 = na
+var time_call1_arr = array.new_float()
+
+if wma200_diff > -1.1
+    if array.size(time_call1_arr) == 0
+        array.push(time_call1_arr, wma200_diff)
+
+if array.size(time_call1_arr) > 0
+    if array.get(time_call1_arr, array.size(time_call1_arr)-1) > -1.1 and wma200_diff < -1.4
+        time_call1_arr := array.new_float()
+        msg1 := 'MARKET TRENDING CALL ...HOLD PUT'
+        clr1 := #ffb52e
+
+
+
 if barstate.islast
     // Make a new box that immediately uses the input's box style
 
@@ -58,10 +78,94 @@ if barstate.islast
     table.cell(panel5, 0, 6)
 
     
-    table.cell(panel5, 0, 1, str.format("Open 6h30: {0}", open15_6h30), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
+    table.cell(panel5, 0, 1, str.format("Open 6h30: {0} Diff: {1}", open15_6h30, wma200_diff), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
     table.cell(panel5, 0, 2, str.format("Close 6h30: {0}", open15_6h45), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
     table.cell(panel5, 0, 3, str.format("Change 6h30-6h45: {0}", change_15m), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
     table.cell(panel5, 0, 4, str.format("Close yesterday: {0}", close200_yesterday), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
- 
-    table.cell(panel5, 0, 5, str.format("Strike trading: {0}", int(open15_6h45-open15_6h45%5)), bgcolor=color.new(#660990,70), text_color=color.yellow, width=20, text_halign=text.align_left)
+    if str.format("{0}", syminfo.ticker) == 'SPX'
+        table.cell(panel5, 0, 5, str.format("Strike trading: {0}", int(open15_6h45-open15_6h45%5)), bgcolor=color.new(#660990,70), text_color=color.yellow, width=20, text_halign=text.align_left)
+    if str.format("{0}", syminfo.ticker) == 'SPY'
+        table.cell(panel5, 0, 5, str.format("Strike trading: {0}", int(open15_6h45)), bgcolor=color.new(#660990,70), text_color=color.yellow, width=20, text_halign=text.align_left)
+    
+
+    //if msg1 != ''
+    //    table.cell(panel5, 0, 6, str.format("{0}", msg1), bgcolor=color.new(clr1,70), text_color=color.white, width=30, text_halign=text.align_left)
+
+
+
+
+//Create Box
+line_len = 10
+line_start = 4
+
+line_len2 = line_len/2 + 2
+
+box bx_ema = na
+box bx_ema2 = na
+box bx_ema3 = na
+box bx_ema4 = na
+
+box bx_ema1 = na
+box bx_ema21 = na
+box bx_ema31 = na
+box bx_ema41 = na
+
+label lbl_ema_open = na
+label lbl_ema_current = na
+label lbl_ema_high = na 
+label lbl_ema_low = na 
+label lbl_ema_yesterday = na
+
+var float open_6h30 = 0.0
+
+if hour(time, "UTC-8") == 6 and minute(time, "UTC-8") == 30
+    start_time_ema := time - 1800000 - 3600000*2
+    
+
+if hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") == 30 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    open_6h30 := close
+
+if barstate.islast
+    bx_ema := box.new(start_time_ema, open_6h30 + 50, start_time_ema+3600000*9, open_6h30 + 25, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=2, border_color=color.white)
+    box.delete(bx_ema[1])
+
+    bx_ema1 := box.new(start_time_ema, open_6h30 + 37.5, start_time_ema+3600000*9, open_6h30 + 37.4, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_dotted)
+    box.delete(bx_ema1[1])
+
+
+    bx_ema2 := box.new(start_time_ema, open_6h30 + 25, start_time_ema+3600000*9, open_6h30, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=2, border_color=color.white)
+    box.delete(bx_ema2[1])
+
+    bx_ema21 := box.new(start_time_ema, open_6h30 + 12.5, start_time_ema+3600000*9, open_6h30 + 12.4, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_dotted)
+    box.delete(bx_ema21[1])
+
+    bx_ema3 := box.new(start_time_ema, open_6h30, start_time_ema+3600000*9, open_6h30 - 25, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=2, border_color=color.white)
+    box.delete(bx_ema3[1])
+
+    bx_ema31 := box.new(start_time_ema, open_6h30 - 17.5, start_time_ema+3600000*9, open_6h30 - 17.6, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_dotted)
+    box.delete(bx_ema31[1])
+
+    bx_ema4 := box.new(start_time_ema, open_6h30 - 25, start_time_ema+3600000*9, open_6h30 - 50, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=2, border_color=color.white)
+    box.delete(bx_ema4[1])
+
+    bx_ema41 := box.new(start_time_ema, open_6h30 - 37.5, start_time_ema+3600000*9, open_6h30 - 37.4, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_dotted)
+    box.delete(bx_ema41[1])
+
+    // line sperate
+    padding_right = 6
+    lbl_ema_open := label.new(bar_index + line_len2+padding_right, open_6h30 + 50, str.format("TOP: {0}", open_6h30 + 50), style = label.style_text_outline, color = color.new(#660990, 90), textcolor = color.orange)
+    label.delete(lbl_ema_open[1])
+
+    lbl_ema_current := label.new(bar_index + line_len2+padding_right, open_6h30 + 25, str.format("UP: {0}", open_6h30 + 25), style = label.style_text_outline, color = color.new(#660990, 90), textcolor = color.orange)
+    label.delete(lbl_ema_current[1])
+
+    lbl_ema_yesterday := label.new(bar_index + line_len2+padding_right, open_6h30, str.format("MID: {0}", open_6h30), style = label.style_text_outline, color = color.new(#660990, 90), textcolor = color.orange)
+    label.delete(lbl_ema_yesterday[1])
+
+    lbl_ema_high := label.new(bar_index + line_len2+padding_right, open_6h30 - 25, str.format("LOW {0}", open_6h30 - 25), style = label.style_text_outline, color = color.new(#660990, 90), textcolor = color.orange)
+    label.delete(lbl_ema_high[1])
+
+    lbl_ema_low := label.new(bar_index + line_len2+padding_right+4, open_6h30 - 50, str.format("BOTTOM: {0}", open_6h30 - 50), style = label.style_text_outline, color = color.new(#660990, 90), textcolor = color.orange)
+    label.delete(lbl_ema_low[1])
+// new box ema diff - END
     
