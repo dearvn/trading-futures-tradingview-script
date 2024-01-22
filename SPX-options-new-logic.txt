@@ -70,7 +70,7 @@ if array.size(time_call1_arr) > 0
 
 
 var float close_15h00 = 0.0
-if hour(time_close, "UTC-8") <= 15 and minute(time_close, "UTC-8") == 0 and second(time_close, "UTC-8") == 0 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+if hour(time_close, "UTC-8") == 13 and minute(time_close, "UTC-8") == 0 and second(time_close, "UTC-8") == 0 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
     close_15h00 := close15
 
 var float close_6h30 = 0.0
@@ -138,23 +138,23 @@ if hour(time, "UTC-8") == 15 and minute(time, "UTC-8") == 00
 
 if barstate.islast
     // up trend
-    padding_right = 3
+    padding_right = 10
         
     lbl_ema_yesterday := label.new(bar_index + line_len2+padding_right+1, close_15h00, str.format("ZERO: {0}", close_15h00), style = label.style_label_right, color = color.new(#660990, 90), textcolor = color.orange)
     label.delete(lbl_ema_yesterday[1])
     
     if close_6h30 > close_15h00 
-        bx_ema := box.new(start_time_15h00, close_15h00 + 50, start_time_15h00+3600000*9, close_15h00, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=2, border_color=color.yellow)
+        bx_ema := box.new(start_time_15h00, close_15h00 + 50, start_time_15h00+3600000*12, close_15h00, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=2, border_color=color.yellow)
         box.delete(bx_ema[1])
 
-        bx_ema1 := box.new(start_time_15h00, close_15h00 + 37.5, start_time_15h00+3600000*9, close_15h00 + 37.6, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
+        bx_ema1 := box.new(start_time_15h00, close_15h00 + 37.5, start_time_15h00+3600000*12, close_15h00 + 37.6, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
         box.delete(bx_ema1[1])
 
 
-        bx_ema2 := box.new(start_time_15h00, close_15h00 + 25, start_time_15h00+3600000*9, close_15h00 + 25.1, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
+        bx_ema2 := box.new(start_time_15h00, close_15h00 + 25, start_time_15h00+3600000*12, close_15h00 + 25.1, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
         box.delete(bx_ema2[1])
 
-        bx_ema21 := box.new(start_time_15h00, close_15h00 + 12.5, start_time_15h00+3600000*9, close_15h00 + 12.6, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
+        bx_ema21 := box.new(start_time_15h00, close_15h00 + 12.5, start_time_15h00+3600000*12, close_15h00 + 12.6, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
         box.delete(bx_ema21[1])
 
         // line sperate
