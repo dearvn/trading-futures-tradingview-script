@@ -1,0 +1,192 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © donaldit.net
+
+//@version=5
+//@version=5
+indicator(title="Donald SPX - Options Trading", shorttitle="Donald SPX - Options Trading", max_bars_back=4999, overlay = true)
+
+
+var float open15_6h30 = na
+
+var float wma200_last = na
+var float open200_6h30 = na
+var float wma200_yesterday = na
+var float close200_yesterday = na
+var float open15_6h45 = na
+
+var int start_time_15h00 = na
+var float open_ema_diff = 0.0
+var float open_ema = 0.0
+
+wma_200 = ta.wma(close, 200)
+
+last_close_1d = request.security(symbol=syminfo.tickerid, timeframe="D", expression=close[1], lookahead=barmerge.lookahead_on)
+close15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=close, lookahead=barmerge.lookahead_on)
+open15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=open, lookahead=barmerge.lookahead_on)
+close5 = request.security(symbol=syminfo.tickerid, timeframe="5", expression=close, lookahead=barmerge.lookahead_on)
+
+wma200_15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=wma_200, lookahead=barmerge.lookahead_on)
+close_2 = request.security(symbol=syminfo.tickerid, timeframe="2", expression=close, lookahead=barmerge.lookahead_on)
+wma200_2 = request.security(symbol=syminfo.tickerid, timeframe="2", expression=wma_200, lookahead=barmerge.lookahead_on)
+close_1d = request.security(symbol=syminfo.tickerid, timeframe="D", expression=close, lookahead=barmerge.lookahead_on)
+
+
+plot(wma_200, title="WMA200", color=color.blue)
+
+
+if hour(time_close, "UTC-8") == 13 and minute(time_close, "UTC-8") == 00 //and second(time_close, "UTC-8") == 00 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    wma200_yesterday := wma200_2
+    close200_yesterday := close_1d
+
+if hour(time_close, "UTC-8") < 6 or hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") == 30 //and second(time_close, "UTC-8") == 00 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    wma200_last := wma200_2
+    open200_6h30 := close
+
+if hour(time_close, "UTC-8") < 6 or hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") <= 45 and second(time_close, "UTC-8") == 00 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    open15_6h45 := close15
+    open15_6h30 := open15
+
+//wma200_diff = close-wma200_15
+wma200_diff = close_2 - wma200_2
+wma200_diff15 = close15 - wma200_15
+change_15m = open15_6h45 - open15_6h30
+
+
+// IF EMA_DIFF MOVING FROM  0.50 to 0.10 THEN PUT
+// TODO
+var color clr1 = na
+var string msg1 = na
+var time_call1_arr = array.new_float()
+
+if wma200_diff > -1.1
+    if array.size(time_call1_arr) == 0
+        array.push(time_call1_arr, wma200_diff)
+
+if array.size(time_call1_arr) > 0
+    if array.get(time_call1_arr, array.size(time_call1_arr)-1) > -1.1 and wma200_diff < -1.4
+        time_call1_arr := array.new_float()
+        msg1 := 'MARKET TRENDING CALL ...HOLD PUT'
+        clr1 := #ffb52e
+
+
+var float close_15h00 = 0.0
+if hour(time_close, "UTC-8") <= 15 and minute(time_close, "UTC-8") == 0 and second(time_close, "UTC-8") == 0 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    close_15h00 := close15
+
+var float close_6h30 = 0.0
+if hour(time_close, "UTC-8") < 6 or hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") <= 30 and second(time_close, "UTC-8") == 0 //and dayofmonth(time_close, "UTC-7")<dayofmonth(timenow, "UTC-7")
+    close_6h30 := close15
+
+var string trend = ''
+if close_6h30 > close_15h00
+    trend := 'UP TREND'
+if close_6h30 < close_15h00
+    trend := 'DOWN TREND'
+
+if barstate.islast
+    // Make a new box that immediately uses the input's box style
+
+    var table panel5 = table.new("bottom_right", 6, 50)
+      
+    table.cell(panel5, 0, 6)
+
+    
+    table.cell(panel5, 0, 1, str.format("Open 6h30: {0} Diff: {1}", open15_6h30, wma200_diff), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
+    table.cell(panel5, 0, 3, str.format("Close 6h30: {0}", close_6h30), bgcolor=color.new(#660990,70), text_color=color.orange, width=20, text_halign=text.align_left)
+    table.cell(panel5, 0, 4, str.format("ZERO - Close 15h00: {0}", close_15h00), bgcolor=color.new(#660990,70), text_color=color.orange, width=20, text_halign=text.align_left)
+    table.cell(panel5, 0, 5, str.format("Trend: {0}", trend), bgcolor=color.new(#660990,70), text_color=color.blue, width=20, text_halign=text.align_left)
+    
+    table.cell(panel5, 0, 7, str.format("Change 6h30-6h45: {0}", change_15m), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
+    table.cell(panel5, 0, 9, str.format("Close yesterday: {0}", close200_yesterday), bgcolor=color.new(#660990,70), text_color=color.white, width=20, text_halign=text.align_left)
+    if str.format("{0}", syminfo.ticker) == 'SPX'
+        table.cell(panel5, 0, 11, str.format("Strike trading: {0}", int(open15_6h45-open15_6h45%5)), bgcolor=color.new(#660990,70), text_color=color.yellow, width=20, text_halign=text.align_left)
+    if str.format("{0}", syminfo.ticker) == 'SPY'
+        table.cell(panel5, 0, 11, str.format("Strike trading: {0}", int(open15_6h45)), bgcolor=color.new(#660990,70), text_color=color.yellow, width=20, text_halign=text.align_left)
+    
+
+    //if msg1 != ''
+    //    table.cell(panel5, 0, 6, str.format("{0}", msg1), bgcolor=color.new(clr1,70), text_color=color.white, width=30, text_halign=text.align_left)
+
+
+
+
+//Create Box
+line_len = 10
+line_start = 4
+
+line_len2 = line_len/2 + 2
+
+box bx_ema = na
+box bx_ema2 = na
+box bx_ema3 = na
+box bx_ema4 = na
+
+box bx_ema1 = na
+box bx_ema21 = na
+box bx_ema31 = na
+box bx_ema41 = na
+
+label lbl_ema_open = na
+label lbl_ema_current = na
+label lbl_ema_high = na 
+label lbl_ema_low = na 
+label lbl_ema_yesterday = na
+
+if hour(time, "UTC-8") == 15 and minute(time, "UTC-8") == 00
+    start_time_15h00 := time //- 1800000 - 3600000*2
+    
+
+if barstate.islast
+    // up trend
+    padding_right = 3
+        
+    lbl_ema_yesterday := label.new(bar_index + line_len2+padding_right+1, close_15h00, str.format("ZERO: {0}", close_15h00), style = label.style_label_right, color = color.new(#660990, 90), textcolor = color.orange)
+    label.delete(lbl_ema_yesterday[1])
+    
+    if close_6h30 > close_15h00 
+        bx_ema := box.new(start_time_15h00, close_15h00 + 50, start_time_15h00+3600000*9, close_15h00, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=2, border_color=color.yellow)
+        box.delete(bx_ema[1])
+
+        bx_ema1 := box.new(start_time_15h00, close_15h00 + 37.5, start_time_15h00+3600000*9, close_15h00 + 37.6, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
+        box.delete(bx_ema1[1])
+
+
+        bx_ema2 := box.new(start_time_15h00, close_15h00 + 25, start_time_15h00+3600000*9, close_15h00 + 25.1, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
+        box.delete(bx_ema2[1])
+
+        bx_ema21 := box.new(start_time_15h00, close_15h00 + 12.5, start_time_15h00+3600000*9, close_15h00 + 12.6, xloc=xloc.bar_time, bgcolor=color.new(#660990, 90), border_width=1, border_color=color.yellow, border_style = line.style_solid)
+        box.delete(bx_ema21[1])
+
+        // line sperate
+        lbl_ema_open := label.new(bar_index + line_len2+padding_right, close_15h00 + 50, str.format("TOP: {0}", close_15h00 + 50), style = label.style_label_right, color = color.new(#660990, 90), textcolor = color.orange)
+        label.delete(lbl_ema_open[1])
+
+        lbl_ema_current := label.new(bar_index + line_len2+padding_right, close_15h00 + 25, str.format("UP: {0}", close_15h00 + 25), style = label.style_label_right, color = color.new(#660990, 90), textcolor = color.orange)
+        label.delete(lbl_ema_current[1])
+
+
+    // down trend
+    if close_6h30 <= close_15h00
+        bx_ema3 := box.new(start_time_15h00, close_15h00, start_time_15h00+3600000*12, close_15h00 - 50, xloc=xloc.bar_time, bgcolor=color.new(#d1b5dd, 90), border_width=2, border_color=color.red)
+        box.delete(bx_ema3[1])
+
+        bx_ema31 := box.new(start_time_15h00, close_15h00 - 12.5, start_time_15h00+3600000*12, close_15h00 - 12.6, xloc=xloc.bar_time, bgcolor=color.new(#d1b5dd, 90), border_width=1, border_color=color.red, border_style = line.style_solid)
+        box.delete(bx_ema31[1])
+
+        bx_ema4 := box.new(start_time_15h00, close_15h00 - 25, start_time_15h00+3600000*12, close_15h00 - 25.1, xloc=xloc.bar_time, bgcolor=color.new(#d1b5dd, 90), border_width=1, border_color=color.red, border_style = line.style_solid)
+        box.delete(bx_ema4[1])
+
+        bx_ema41 := box.new(start_time_15h00, close_15h00 - 37.5, start_time_15h00+3600000*12, close_15h00 - 37.6, xloc=xloc.bar_time, bgcolor=color.new(#d1b5dd, 90), border_width=1, border_color=color.red, border_style = line.style_solid)
+        box.delete(bx_ema41[1])
+
+        lbl_ema_high := label.new(bar_index + line_len2+padding_right, close_15h00 - 25, str.format("LOW {0}", close_15h00 - 25), style = label.style_label_right, color = color.new(#660990, 90), textcolor = color.orange)
+        label.delete(lbl_ema_high[1])
+
+        lbl_ema_low := label.new(bar_index + line_len2+padding_right+3, close_15h00 - 50, str.format("BOTTOM: {0}", close_15h00 - 50), style = label.style_label_right, color = color.new(#660990, 90), textcolor = color.orange)
+        label.delete(lbl_ema_low[1])
+    
+    
+
+    
+// new box ema diff - END
+    
