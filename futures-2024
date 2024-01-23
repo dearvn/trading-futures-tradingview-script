@@ -1,0 +1,114 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © donaldit.net
+
+//@version=5
+strategy("SPX - ALMA Smoothed Gaussian Moving Average", shorttitle = "SPX - ALMA Moving Average", overlay=true, pyramiding=1, default_qty_type = strategy.fixed, default_qty_value = 1)
+
+stopPerCall = input(0.08, title='Stop Loss Call %') / 100 
+takePerCall = input(0.03, title='Take Profit Call %') / 100
+
+stopPerPut = input(0.07, title='Stop Loss Put %') / 100 
+takePerPut = input(0.02, title='Take Profit Put %') / 100
+
+longStop = strategy.position_avg_price * (1 - stopPerCall)
+shortStop = strategy.position_avg_price * (1 + stopPerPut)
+shortTake = strategy.position_avg_price * (1 - takePerPut)
+longTake = strategy.position_avg_price * (1 + takePerCall)
+
+
+//ALMA Smoothing
+src = input(close, title='Source', group = "ALMA Smoothing")
+smooth = input.int(1, title='Smoothing', minval=1, group = "ALMA Smoothing")
+length1 = input.int(25, title='Lookback', minval=1, group = "ALMA Smoothing")
+offset = 0.85
+sigma1 = 7
+pchange = ta.change(src, smooth) / src * 100
+avpchange = ta.alma(pchange, length1, offset, sigma1)
+
+//RSI
+rsi = ta.rsi(close, 14)
+rsiL = rsi > rsi[1]
+rsiS = rsi < rsi[1]
+
+//Chande Momentum
+length11 = 9
+src1 = close
+momm = ta.change(src1)
+f1(m) => m >= 0.0 ? m : 0.0
+f2(m) => m >= 0.0 ? 0.0 : -m
+m1 = f1(momm)
+m2 = f2(momm)
+sm1 = math.sum(m1, length11)
+sm2 = math.sum(m2, length11)
+percent(nom, div) => 100 * nom / div
+chandeMO = percent(sm1-sm2, sm1+sm2)
+cL = chandeMO > chandeMO[1]
+cS = chandeMO < chandeMO[1]
+
+//GAMA credit to author: © LeafAlgo https://www.tradingview.com/v/th7NZUPM/
+length = input.int(14, minval=1, title="Length", group = "Gaussian Adaptive Moving Average")
+adaptive = input.bool(true, title="Adaptive Parameters", group = "Gaussian Adaptive Moving Average")
+volatilityPeriod = input.int(20, minval=1, title="Volatility Period", group = "Gaussian Adaptive Moving Average")
+
+// Calculate Gaussian Moving Average
+gma = 0.0 
+sumOfWeights = 0.0
+sigma = adaptive ? ta.stdev(close, volatilityPeriod) : input.float(1.0, minval=0.1, title="Standard Deviation", group = "Gaussian Adaptive Moving Average")
+
+for i = 0 to length - 1
+    weight = math.exp(-math.pow(((i - (length - 1)) / (2 * sigma)), 2) / 2)
+    value = ta.highest(avpchange, i + 1) + ta.lowest(avpchange, i + 1)
+    gma := gma + (value * weight)
+    sumOfWeights := sumOfWeights + weight
+
+gma := (gma / sumOfWeights) / 2
+gma:= ta.ema(gma, 7)
+gmaColor = avpchange >= gma ? color.rgb(0, 161, 5) : color.rgb(215, 0, 0)
+
+// Color bars based on signals until the next signal occurs
+var int currentSignal = 0
+currentSignal := avpchange >= gma ? 1 : -1//le_final ? -1 : currentSignal
+
+var color barColor = na
+if currentSignal == 1
+    barColor := color.rgb(0, 186, 6)
+else if currentSignal == -1
+    barColor := color.rgb(176, 0, 0)
+
+barcolor(barColor)
+plotcandle(open, high, low, close, "Bar Color", barColor, barColor, bordercolor = barColor)
+
+//Plotting
+ema = ta.ema(close, 7)
+plot(ema, color=gmaColor, linewidth=3, title="Gaussian Moving Average")
+
+buy_signal = ta.crossover(avpchange,gma) and barstate.isconfirmed
+sell_signal = ta.crossunder(avpchange,gma) and barstate.isconfirmed
+plotshape(buy_signal ? low : na, "Buy Signal", text = "B", textcolor = color.white, style = shape.labelup, location = location.belowbar, color = color.rgb(0, 161, 5), offset = -1)
+plotshape(sell_signal ? high : na, "Sell Signal", text = "S", textcolor = color.white, style = shape.labeldown, location = location.abovebar, color = color.rgb(215, 0, 0), offset = -1)
+
+bgcolor(ta.crossover(avpchange,gma) and barstate.isconfirmed and rsiL and cL ? color.rgb(0, 162, 5, 85): na, offset = -1)
+bgcolor(ta.crossunder(avpchange,gma) and barstate.isconfirmed and rsiS and cS ? color.rgb(207, 0, 0, 85): na, offset = -1)
+barcolor(gmaColor)
+
+alertcondition(ta.crossover(avpchange,gma) and barstate.isconfirmed, title="Buy Signal", message="Go Long! {{exchange}}:{{ticker}}")
+alertcondition(ta.crossunder(avpchange,gma) and barstate.isconfirmed, title="Sell Signal", message="Go Short! {{exchange}}:{{ticker}}")
+
+if buy_signal
+    strategy.entry("call", strategy.long)
+if sell_signal
+    strategy.entry("put", strategy.short)
+
+if(strategy.position_size > 0 and sell_signal and rsiS and cS)
+    strategy.close(id="call")
+    //call_price := 0.0
+if(strategy.position_size < 0 and buy_signal and rsiL and cL)
+    strategy.close(id="put")
+
+
+if(strategy.position_size > 0)
+    strategy.exit(id='call', limit=longTake,stop = longStop)
+    
+
+if(strategy.position_size < 0)
+    strategy.exit(id='put', limit=shortTake,stop = shortStop)
