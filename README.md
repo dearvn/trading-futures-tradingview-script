@@ -1,3 +1,6 @@
+# Updated new strategy
+nq-est-futres.txt
+
 # Trading $SPX options
 
 Timeframe: 15M, Ticker $SPX
