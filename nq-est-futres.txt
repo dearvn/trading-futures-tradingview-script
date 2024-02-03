@@ -1,0 +1,517 @@
+// @version=5
+strategy("Try trading Future", shorttitle="Modify by Donald - Try trading Future", overlay=true, initial_capital = 5000, pyramiding = 1, default_qty_type = strategy.fixed, default_qty_value = 1, calc_on_every_tick = true, process_orders_on_close = false, use_bar_magnifier = false, commission_type = strategy.commission.cash_per_contract, commission_value = 0.82, slippage = 5)
+max_bars_back(time, 5000)
+strategy.risk.max_intraday_filled_orders(10)
+
+////////////////////////////////////
+fvgTT = 'The script displays the fair value gaps whose width is larger than a fixed-length atr (average true range) value multiplied by the value of the option.\n\n' + 
+         'The option value set to 0 means no filtering is applied.\n\n' + 
+         'Remark: no filtering will be applied for the first 144 (atr fixed-length) candles since the atr value won\'t be present'
+fvgTH = input.float(.5, 'Fair Value Gap Width Filter', minval = 0, step = .1, tooltip = fvgTT)
+
+fvgBC = input.color(color.new(#089981, 55), 'Bullish, Imbalance', inline = 'VA')
+fvgAC = input.color(color.new(#787b86, 77), 'Mitigation', inline = 'VA')
+fvgSC = input.color(color.new(#f23645, 55), 'Bearish, Imbalance', inline = 'VD')
+fvgFC = input.color(color.new(#787b86, 77), 'Mitigation', inline = 'VD')
+
+fvgPT = 'Displays percentage value of the mitigation area'
+fvgPR = input.bool (true, 'Display Percentage of Mitigation', tooltip = fvgPT)
+
+fvgFT = 'Toggles the visibility of the historical fair value gaps'
+fvgVF = input.bool (true, 'Historical Fair Value Gaps', inline = 'FL', tooltip = fvgFT)
+
+//-----------------------------------------------------------------------------}
+// User Defined Types
+//-----------------------------------------------------------------------------{
+
+type bar
+    float h = high
+    float l = low
+    float c = close
+    int   i = bar_index
+
+type FVG
+    box  [] uFVG
+    box  [] mFVG
+    box  [] tFVG
+    line [] lFVG
+
+//-----------------------------------------------------------------------------}
+// Variables
+//-----------------------------------------------------------------------------{
+bar b = bar.new()
+
+var FVG fvg = FVG.new(
+     array.new <box>  (na), 
+     array.new <box>  (na), 
+     array.new <box>  (na), 
+     array.new <line> (na)
+ )
+var bool last = na 
+
+//-----------------------------------------------------------------------------}
+// Functions / Methods
+//-----------------------------------------------------------------------------{
+method clear(FVG _id, _h) =>
+    arr = array.from(_id.uFVG.pop(), _id.mFVG.pop(), _id.tFVG.pop())
+
+    if not _h
+        for bx in arr
+            bx.delete()
+        _id.lFVG.pop().delete()
+    else
+        _id.lFVG.pop()
+        na
+
+method update(FVG _id, _h, _l, _p) =>
+
+    cUB = _id.uFVG.get(0)
+    tUB = cUB.get_top()
+    bUB = cUB.get_bottom()
+
+    cMB = _id.mFVG.get(0)
+    tMB = cMB.get_top()
+    bMB = cMB.get_bottom()
+
+    cTB = _id.tFVG.get(0)
+
+    cL  = _id.lFVG.get(0)
+
+    if _h > bUB and _l < tUB
+        if _p
+            if _l > bUB
+                cMB.set_bottom(math.min(_l, bMB))
+                cUB.set_top(math.min(_l, bMB))
+
+                if fvgPR
+                    cTB.set_text("Bullish "+str.tostring((tMB - math.min(_l, bMB)) / (tMB - bUB), '#.#%'))
+                    //cTB.set_text('Bullish')
+            else
+                cMB.set_bottom(bUB)
+                cUB.set_top(bUB)
+
+                cTB.set_text('Can Exit?')
+
+                fvg.clear(fvgVF)
+
+        else
+            if _h < tUB
+                cMB.set_top(math.max(_h, tMB))
+                cUB.set_bottom(math.max(_h, tMB))
+
+                if fvgPR
+                    cTB.set_text("Bearish "+str.tostring((math.max(_h, tMB) - bMB) / (tUB - bMB), '#.#%'))
+                    //cTB.set_text('Bearish')
+            else
+                cMB.set_top(tUB)
+                cUB.set_bottom(tUB)
+
+                cTB.set_text('Continue S')
+
+                fvg.clear(fvgVF)
+
+    cMB.set_right(b.i)
+    cUB.set_right(b.i)
+    cTB.set_right(b.i)
+    cL.set_x2(b.i)
+
+//-----------------------------------------------------------------------------}
+// Calculations
+//-----------------------------------------------------------------------------{
+bullG = b.l > b.h[1]
+bearG = b.h < b.l[1]
+
+atr   = nz(ta.atr(144)) * fvgTH
+
+bull  = (b.l - b.h[2]) > atr and b.l > b.h[2] and b.c[1] > b.h[2] and not (bullG or bullG[1])
+
+//plotshape(bull ? low:na, title = 'BULL', style=shape.diamond, location=location.bottom, color=color.yellow, size=size.normal)
+
+if bull 
+    if fvg.uFVG.size() > 0
+        fvg.clear(fvgVF)
+
+    fvg.uFVG.push(box.new (b.i - 1, b.l, b.i, b.h[2], na, bgcolor = fvgBC))
+    fvg.mFVG.push(box.new (b.i - 1, b.l, b.i, b.l   , na, bgcolor = fvgAC))
+    fvg.tFVG.push(box.new (b.i - 1, b.l, b.i, b.h[2], na, bgcolor = color(na), text_color = chart.fg_color, text_size = size.small))
+    fvg.lFVG.push(line.new(b.i - 1, b.h[2], b.i, b.h[2], color = fvgBC, width = 2))
+
+    last := true
+
+bear  = (b.l[2] - b.h) > atr and b.h < b.l[2] and b.c[1] < b.l[2] and not (bearG or bearG[1])
+
+//plotshape(bear ? high:na, title = 'BEAR', style=shape.diamond, location=location.top, color=color.yellow, size=size.normal)
+
+if bear
+    if fvg.uFVG.size() > 0
+        fvg.clear(fvgVF)
+
+    fvg.uFVG.push(box.new (b.i - 1, b.l[2], b.i, b.h, na, bgcolor = fvgSC))
+    fvg.mFVG.push(box.new (b.i - 1, b.h   , b.i, b.h, na, bgcolor = fvgFC))
+    fvg.tFVG.push(box.new (b.i - 1, b.l[2], b.i, b.h, na, bgcolor = color(na), text_color = chart.fg_color, text_size = size.small))
+    fvg.lFVG.push(line.new(b.i - 1, b.l[2], b.i, b.l[2], color = fvgSC, width = 2))
+
+    last := false
+
+if bullG or bearG
+    if fvg.uFVG.size() > 0
+        fvg.clear(fvgVF)
+
+if fvg.uFVG.size() > 0
+    fvg.update(b.h, b.l, last)
+
+//-----------------------------------------------------------------------------}
+
+
+////////////////////////////////////
+
+
+// ===========================
+// ==== Backtest Settings ====
+// ===========================
+
+var group1 = "Backtest Range"
+fromMonth = input.int(defval = 1,    title = "From Month",  minval = 1, maxval = 12, inline = "1", group = group1)
+fromDay   = input.int(defval = 1,    title = "Day",    minval = 1, maxval = 31, inline = "1", group = group1)
+fromYear  = input.int(defval = 2018, title = "Year",   minval = 1970, inline = "1", group = group1)
+thruMonth = input.int(defval = 1,    title = "To Month",  minval = 1, maxval = 12, inline = "2", group = group1)
+thruDay   = input.int(defval = 1,    title = "Day",    minval = 1, maxval = 31, inline = "2", group = group1)
+thruYear  = input.int(defval = 2300, title = "Year",   minval = 1970, inline = "2", group = group1)
+
+// =====================
+// ==== Trade Rules ====
+// =====================
+
+var group2 = "Trade Rules"
+tradeTimes = input.session("0900-1455", title="Position Entry Window", group=group2)
+minPrevDayVolume = input.int(defval = 1000, title = "Previous Day Volume Threshold", minval = 1, maxval = 10000000, tooltip = "The minimum contract volume from the previous day to allow trading for today.", group = group2)
+defaultQty = input.int(defval=1, title="Default Contract Quantity", minval = 1, maxval = 10000000, step=1, group=group2, tooltip="The quantity of contracts to buy or sell for the entry. Note: If you have defined the Position size settings in your TradersPost subscription settings, this value is ignored.")
+retestBars = input.int(defval=6, title="Close Above 8 EMA within X Bars", minval = 1, maxval = 10000000, step=1, group=group2, tooltip="When price retraces to the 55 EMA and closes above the 8 EMA, it must do so within a certain number of bars. The default is 6 bars.")
+attachTrail = input.bool(false, title="Attach Broker Trailing Stop", group=group2, tooltip="When using alert() function calls only for your entry alert condition, the strategy will attach trailing stop instructions to your entry order so that the broker handles the trailing stop instead of the strategy. Note: Many brokers use the close price as the trailing stop source. If your trailing stop source is different than what the broker uses, the performance may differ.")
+
+var group3 = "Long Entry Rules"
+allow_long = input.bool(true, title="Allow Longs", group=group3)
+longTrailPerc = input.float(title="Trail Long Loss (%)", minval=0.0, step=0.1, defval=0.75, group = group3) * 0.01
+longTrailSrc = input.source(high, title="Trail Long Source", group=group3, tooltip = "Price to observe when lifting the trailing stop. Typically this is set to the close price. Note: This value is ignored if you attach the broker trailing stop.")
+
+var group4 = "Short Entry Rules"
+allow_short = input.bool(false, title="Allow Shorts", group=group4)
+shortTrailPerc = input.float(title="Trail Short Loss (%)", minval=0.0, step=0.1, defval=1, group = group4) * 0.01
+shortTrailSrc = input.source(low, title="Trail Short Source", group=group4, tooltip = "Price to observe when lowering the trailing stop. Typically this is set to the close price. Note: This value is ignored if you attach the broker trailing stop.")
+
+InSession(sessionTimes) =>
+    not na(time(timeframe.period, sessionTimes))
+
+bgcolor(color=InSession(tradeTimes) ? color.new(color.green, 90) : color.new(color.white, 99))
+
+// ============================
+// ==== Indicator Settings ====
+// ============================
+
+var group5 = "Indicator Settings"
+ema1len = input.int(8, minval=1, title="5m EMA 1 Length", group = group5)
+ema2len = input.int(55, minval=1, title="5m EMA 2 Length", group = group5)
+ema15len = input.int(165, minval=1, title="15m EMA Length", group = group5, tooltip = "Should be 3x the 5 minute 55 EMA length.")
+src = input(close, title="EMA Source", group = group5)
+
+show_pivot_labels = input.bool(false, title="Show Pivot Points", group = group5)
+
+start     = timestamp(fromYear, fromMonth, fromDay, 00, 00)            // backtest start  window
+finish    = timestamp(thruYear, thruMonth, thruDay, 23, 59)            // backtest finish window
+window()  => time >= start and time <= finish ? true : false           // create function "within window of time"
+
+longStopPrice = 0.0, shortStopPrice = 0.0
+
+volume_yesterday = request.security(syminfo.tickerid, "1D", volume[1])
+plot(volume_yesterday, title = "Volume Yesterday", display = display.data_window)
+
+//previous day low used to filter short side
+yesterday_low = request.security(syminfo.tickerid, 'D', low[1])
+plot(yesterday_low, title="Yesterday Low", display = display.data_window)
+
+lengthGroupTitle = "LENGTH LEFT / RIGHT"
+colorGroupTitle = "Text Color / Label Color"
+leftLenH = input.int(title="Pivot High", defval=10, minval=1, inline="Pivot High", group=lengthGroupTitle)
+rightLenH = input.int(title="/", defval=10, minval=1, inline="Pivot High", group=lengthGroupTitle)
+textColorH = input(title="Pivot High", defval=color.black, inline="Pivot High", group=colorGroupTitle)
+labelColorH = input(title="", defval=color.white, inline="Pivot High", group=colorGroupTitle)
+
+leftLenL = input.int(title="Pivot Low", defval=10, minval=1, inline="Pivot Low", group=lengthGroupTitle)
+rightLenL = input.int(title="/", defval=10, minval=1, inline="Pivot Low", group=lengthGroupTitle)
+textColorL = input(title="Pivot Low", defval=color.black, inline="Pivot Low", group=colorGroupTitle)
+labelColorL = input(title="", defval=color.white, inline="Pivot Low", group=colorGroupTitle)
+
+// ================================
+// ==== EMA Indicator Settings ====
+// ================================
+
+// set up ema 1 and 2
+ema1 = ta.ema(src, ema1len)
+ema2 = ta.ema(src, ema2len)
+// check 15 minute EMA
+ema15step = ta.ema(src, ema15len)
+
+//establish direction (1 == long, 0 == short, -1 == no trade)
+trade_direction = ema2 >= ema15step and ema1 > ema2 ? 1 : ema2 <= ema15step and ema1 < ema2 ? 0 : -1
+plot(trade_direction, title="Trade Direction", display = display.data_window, color = color.blue)
+
+//col = ema1 > ema15step ? color.lime : ema1 < ema15step ? color.red : color.yellow
+col = trade_direction == 1 ? color.lime : trade_direction == 0 ? color.red : color.yellow
+plot(ema1, title = "EMA Short", color=col, linewidth = 1, display = display.all)
+plot(ema2, title = "EMA Long", color=col, linewidth = 2, display = display.all)
+plot(ema15step, title = "15 Minute EMA", color=col, linewidth=3, style = plot.style_stepline, display = display.all)
+
+// =======================
+// ==== Trading Logic ====
+// =======================
+
+// direction change bars
+direction_change_bars = ta.barssince(trade_direction != trade_direction[1])
+//plot(direction_change_bars, title="direction_change_bars", display = display.data_window)
+// last long or short direction
+direction_long_bars = ta.barssince(trade_direction == 1)
+direction_short_bars = ta.barssince(trade_direction == 0)
+//plot(direction_long_bars, title="direction_long_bars", display = display.data_window)
+//plot(direction_short_bars, title="direction_short_bars", display = display.data_window)
+
+// must retest 55 ema within direction change window
+long_ema2_retest_bars = ta.barssince(low < ema2)
+//plot(long_ema2_retest_bars, title="long_ema2_retest_bars", display = display.data_window)
+short_ema2_retest_bars = ta.barssince(high > ema2)
+//plot(short_ema2_retest_bars, title="short_ema2_retest_bars", display = display.data_window)
+
+// take trade above ema1 within 5 bars of 55 ema retest
+long_close_above_ema1 = close > ema1 ? 1 : 0
+long_close_crosses_ema1 = ta.crossover(close, ema1)
+//plot(long_close_above_ema1, title="long_close_above_ema1", display = display.data_window)
+short_close_below_ema1 = close < ema1 ? 1 : 0
+//plot(short_close_below_ema1, title="short_close_below_ema1", display = display.data_window)
+
+var float ph = na
+var float ph1 = na
+var float pl = na
+var float pl1 = na
+
+_ph = ta.pivothigh(leftLenH, rightLenH)
+_pl = ta.pivotlow(leftLenL, rightLenL)
+
+if (not na(_ph))
+    ph1 := ph
+    ph := _ph
+
+if (not na(_pl))
+    pl1 := pl
+    pl := _pl
+
+ph_bar = ta.barssince(not na(_ph)) + leftLenH + 1
+//plot(ph_bar, title="ph_bar", display = display.data_window)
+
+pl_bar = ta.barssince(not na(_pl)) + leftLenH + 1
+//plot(pl_bar, title="pl_bar", display = display.data_window)
+
+drawLabel(_offset, _pivot, _style, _color, _textColor) =>
+    if not na(_pivot)
+        label.new(bar_index[_offset], _pivot, str.tostring(_pivot, format.mintick), style=_style, color=_color, textcolor=_textColor, size=size.tiny)
+
+if show_pivot_labels
+    drawLabel(rightLenH, _ph, label.style_label_down, labelColorH, textColorH)
+    drawLabel(rightLenL, _pl, label.style_label_up, labelColorL, textColorL)
+
+// find recent high if higher than pivot
+float rh = na
+float rl = na
+if (ph_bar > 0)
+    rh := ta.highest(high, ph_bar)
+if (pl_bar > 0)
+    rl := ta.lowest(low, pl_bar)
+
+retest_high = ta.valuewhen(high > ema2, high, 0)
+retest_low = ta.valuewhen(low < ema2, low, 0)
+
+bar_high1 = ta.highest(high, 20)
+bar_high2 = ta.highest(high, 40)
+bar_low1 = ta.lowest(low, 20)
+bar_low2 = ta.lowest(low, 40)
+
+//plot(retest_low, title="retest_low", display = display.data_window)
+//plot(bar_high1, title="bar_high1", display = display.data_window)
+//plot(bar_high2, title="bar_high2", display = display.data_window)
+//plot(rh, title="rh", display = display.data_window)
+//plot(_ph, title="_ph", display = display.data_window)
+//plot(ph, title="ph", display = display.data_window)
+//plot(ph1, title="ph1", display = display.data_window)
+
+//plot(retest_high, title="retest_high", display = display.data_window)
+//plot(bar_low1, title="bar_low1", display = display.data_window)
+//plot(bar_low2, title="bar_low2", display = display.data_window)
+//plot(rl, title="rl", display = display.data_window)
+//plot(_pl, title="_pl", display = display.data_window)
+//plot(pl, title="pl", display = display.data_window)
+//plot(pl1, title="pl1", display = display.data_window)
+
+long_ph_delta = (ph / ph1 - 1) * 100
+//plot(long_ph_delta, title="long_ph_delta", display = display.data_window)
+
+short_pl_delta = (pl / pl1 - 1) * 100
+//plot(short_pl_delta, title="short_pl_delta", display = display.data_window)
+
+// long recent high must be greater than previous high
+// short recent low must be lower than previous low
+
+BarsSinceLastEntry() =>
+    bar_index - strategy.opentrades.entry_bar_index(strategy.opentrades - 1)
+
+// fib calcs -----------------------------------------------
+
+// levels: 0.000, 0.236, 0.382, 0.500, 0.618, 0.786, 0.886, 1.000
+FibRetraceUp(lower, upper, level) =>
+    upper * math.pow(lower/upper, level)
+FibRetraceDown(upper, lower, level) =>
+    lower * math.pow(upper/lower, level)
+FibExtendUp(a, b, c, level) =>
+    dist = b-a
+    c + level * dist
+
+// ema15step rule violation
+
+all_emas_crossed_bars = ta.barssince(low < ema1 and low < ema2 and low < ema15step)
+plot(all_emas_crossed_bars, title="all_emas_crossed_bars", display = display.data_window)
+
+//long fib trade  ------------------------------------------
+
+// plot(FibRetraceUp(pl, ph, 0.618), title="fib_entry")
+// plot(FibRetraceUp(pl, ph, 1.2), title="fib_sl")
+// plot(FibExtendUp(pl1, ph, pl, 1.2), title="fib_tp")
+
+//plotchar(trade_direction != 0 and high < ema1 and high >= ema15step, "Wrong Pivot High", "⬇", location.abovebar, color.purple, size=size.normal)
+
+// ------------------------------
+
+HigherHighConfirmed(bar_high1, rh, ph, ph1) =>
+    if (bar_high1 > rh and bar_high1 > ph)
+        bar_high1 > ph1
+    else if (rh > ph)
+        rh > ph1
+    else
+        ph > ph1
+
+higher_high_confirmed = HigherHighConfirmed(bar_high1, rh, ph, ph1) ? 1 : 0
+//higher_high_confirmed = ten_bar_high > ph and ten_bar_high > ph1 ? 1 : 0
+//higher_high_confirmed = bar_high1 > bar_high2 ? 1 : 0
+//plot(higher_high_confirmed, "higher_high_confirmed", display = display.data_window)
+
+LowerLowConfirmed(rl, pl, pl1) =>
+    if (rl < pl)
+        rl < pl1
+    else
+        pl < pl1
+
+lower_low_confirmed = LowerLowConfirmed(rl, pl, pl1) ? 1 : 0
+//plot(lower_low_confirmed, "lower_low_confirmed", display = display.data_window)
+
+strat_pos_size = strategy.position_size
+//plot(strat_pos_size, title="strat_pos_size", display = display.data_window)
+//plot(strat_pos_size[1], title="prev_strat_pos_size", display = display.data_window)
+
+// ===============================
+// ==== Long Trade Conditions ====
+// ===============================
+
+// must meet volume condition
+l_cond0 = volume_yesterday >= minPrevDayVolume
+// must trade in session
+l_cond1 = InSession(tradeTimes) and window()
+//must be a long trade direction
+l_cond2 = trade_direction == 1
+//must have retested within the last x bars
+l_cond3 = long_ema2_retest_bars >= 0 and long_ema2_retest_bars < retestBars
+//must be closed above the ema1
+l_cond4 = long_close_above_ema1 == 1
+//now combined into one condition
+long_condition = l_cond0 and l_cond1 and l_cond2 and l_cond3 and l_cond4 and bullG
+
+plotchar(long_condition, "LONG ENTRY", "◆", location.abovebar, color.green, size = size.tiny)
+
+if (allow_long == true and strategy.opentrades < defaultQty and long_condition and barstate.isconfirmed)
+    
+    alert('{' +str.format('"action": "Buy","quantity":{0},"price": {1},"stopLoss": {2}', defaultQty, close, attachTrail == true?longTrailPerc * 100:0)+'}', alert.freq_once_per_bar )
+    strategy.entry("Long Entry", direction=strategy.long, qty=defaultQty)
+
+// set up trailing stop for the long
+longStopPrice := if (strategy.position_size > 0)
+    stopValue = longTrailSrc * (1 - longTrailPerc)
+    math.max(stopValue, longStopPrice[1])
+else
+    0
+
+plot(series=(strategy.position_size > 0) ? longStopPrice : na, color=color.fuchsia, style=plot.style_cross, linewidth=1, title="Long Trail Stop")
+
+
+// Trailing stop signal is sent to TradersPost. Be sure your alert uses "alert() function calls only"
+// for this to function properly.
+if (attachTrail == false and strat_pos_size[1] > 0 and strat_pos_size == 0 and low <= longStopPrice[1])
+    alert('{' +str.format('"action": "Exit","price": {0}', close)+'}', alert.freq_once_per_bar )
+    
+// Trailing stop signal is sent to TradingView's backtest.
+if (strategy.position_size > 0)
+    strategy.exit(id="Trailing Exit", stop=longStopPrice)
+
+// Close the long positions if the direction indictator flips to bearish.
+// An exit signal is sent to TradersPost to cancel any existing stop orders and exit the position.
+// If you attached the broker trailing stop, that order will be cancelled.
+if (strategy.opentrades > 0 and strategy.opentrades.size(0) > 0 and trade_direction == 0 and barstate.isconfirmed)
+    strategy.close_all("Direction Exit")
+    alert('{' +str.format('"action": "Exit","price": {0}', close)+'}', alert.freq_once_per_bar )
+    
+// ================================
+// ==== Short Trade Conditions ====
+// ================================
+
+// must meet volume condition
+s_cond0 = volume_yesterday >= minPrevDayVolume
+// must trade in session
+s_cond1 = InSession(tradeTimes) and window()
+// must be a short trade direction
+s_cond2 = trade_direction == 0
+// must have retested in the last x bars
+s_cond3 = short_ema2_retest_bars >= 0 and short_ema2_retest_bars < retestBars
+// must close below the ema1
+s_cond4 = short_close_below_ema1 == 1
+// close must be inside the previous day high and low range
+s_cond5 = close >= yesterday_low
+//now combined into one condition
+short_condition = s_cond0 and s_cond1 and s_cond2 and s_cond3 and s_cond4 and s_cond5 and bearG
+
+plotchar(short_condition, "SHORT ENTRY", "◆", location.belowbar, color.red, size = size.tiny)
+
+if (allow_short == true and strategy.opentrades < defaultQty and short_condition and barstate.isconfirmed)
+    alert('{' +str.format('"action": "Sell","quantity":{0},"price": {2},"stopLoss": {3}', defaultQty, close, attachTrail == true?shortTrailPerc * 100:0)+'}', alert.freq_once_per_bar )
+    
+    strategy.entry("Short Entry", direction=strategy.short, qty=defaultQty)
+
+
+// set up trailing stop for the short
+shortStopPrice := if (strategy.position_size < 0)
+    stopValue = shortTrailSrc * (1 + shortTrailPerc)
+    math.min(stopValue, shortStopPrice[1])
+else
+    9999999
+
+plot(series=(strategy.position_size < 0) ? shortStopPrice : na, color=color.fuchsia, style=plot.style_cross, linewidth=1, title="Short Trail Stop")
+
+// Trailing stop signal is sent to TradersPost. Be sure your alert uses "alert() function calls only"
+// for this to function properly.
+if (attachTrail == false and strat_pos_size[1] < 0 and strat_pos_size == 0 and high >= shortStopPrice[1])
+    alert('{' +str.format('"action": "Exit","price": {0}', close)+'}', alert.freq_once_per_bar )
+    
+// Trailing stop signal is sent to TradingView's backtest.
+if (strategy.position_size < 0)
+    strategy.exit(id="Trailing Exit", stop=shortStopPrice)
+
+// Close the short positions if the direction indictator flips to bullish.
+// An exit signal is sent to TradersPost to cancel any existing stop orders and exit the position.
+// If you attached the broker trailing stop, that order will be cancelled.
+if (strategy.opentrades > 0 and strategy.opentrades.size(0) < 0 and trade_direction == 1 and barstate.isconfirmed)
+    strategy.close_all("Direction Exit")
+    alert('{' +str.format('"action": "Exit","price": {0}', close)+'}', alert.freq_once_per_bar )
+    
