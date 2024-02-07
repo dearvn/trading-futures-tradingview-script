@@ -1,0 +1,192 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// @donaldit
+//@version=5
+strategy("Donald - test logic Futures", shorttitle="Donald - Test Trading Future", overlay=true, initial_capital = 5000, pyramiding = 1, default_qty_type = strategy.fixed, default_qty_value = 1, calc_on_every_tick = true, process_orders_on_close = false, use_bar_magnifier = false, commission_type = strategy.commission.cash_per_contract, commission_value = 0.82, slippage = 5)
+max_bars_back(time, 5000)
+strategy.risk.max_intraday_filled_orders(10)
+
+
+// ~~~~~~~~~~~ IMPORTS ~~~~~~~~~~~ //
+//Credits go to jdehorty for the rationalQuadratic and gaussian Functions
+import jdehorty/KernelFunctions/2 as kernels
+
+// ===========================
+// ==== Backtest Settings ====
+// ===========================
+
+var group1 = "Backtest Range"
+fromMonth = input.int(defval = 1,    title = "From Month",  minval = 1, maxval = 12, inline = "1", group = group1)
+fromDay   = input.int(defval = 1,    title = "Day",    minval = 1, maxval = 31, inline = "1", group = group1)
+fromYear  = input.int(defval = 2018, title = "Year",   minval = 1970, inline = "1", group = group1)
+thruMonth = input.int(defval = 1,    title = "To Month",  minval = 1, maxval = 12, inline = "2", group = group1)
+thruDay   = input.int(defval = 1,    title = "Day",    minval = 1, maxval = 31, inline = "2", group = group1)
+thruYear  = input.int(defval = 2300, title = "Year",   minval = 1970, inline = "2", group = group1)
+
+// =====================
+// ==== Trade Rules ====
+// =====================
+
+var group2 = "Trade Rules"
+tradeTimes = input.session("0900-1455", title="Position Entry Window", group=group2)
+minPrevDayVolume = input.int(defval = 1000, title = "Previous Day Volume Threshold", minval = 1, maxval = 10000000, tooltip = "The minimum contract volume from the previous day to allow trading for today.", group = group2)
+defaultQty = input.int(defval=1, title="Default Contract Quantity", minval = 1, maxval = 10000000, step=1, group=group2, tooltip="The quantity of contracts to buy or sell for the entry. Note: If you have defined the Position size settings in your TradersPost subscription settings, this value is ignored.")
+retestBars = input.int(defval=6, title="Close Above 8 EMA within X Bars", minval = 1, maxval = 10000000, step=1, group=group2, tooltip="When price retraces to the 55 EMA and closes above the 8 EMA, it must do so within a certain number of bars. The default is 6 bars.")
+attachTrail = input.bool(false, title="Attach Broker Trailing Stop", group=group2, tooltip="When using alert() function calls only for your entry alert condition, the strategy will attach trailing stop instructions to your entry order so that the broker handles the trailing stop instead of the strategy. Note: Many brokers use the close price as the trailing stop source. If your trailing stop source is different than what the broker uses, the performance may differ.")
+
+var group3 = "Long Entry Rules"
+allow_long = input.bool(true, title="Allow Longs", group=group3)
+longTrailPerc = input.float(title="Trail Long Loss (%)", minval=0.0, step=0.1, defval=0.75, group = group3) * 0.01
+longTrailSrc = input.source(high, title="Trail Long Source", group=group3, tooltip = "Price to observe when lifting the trailing stop. Typically this is set to the close price. Note: This value is ignored if you attach the broker trailing stop.")
+
+var group4 = "Short Entry Rules"
+allow_short = input.bool(false, title="Allow Shorts", group=group4)
+shortTrailPerc = input.float(title="Trail Short Loss (%)", minval=0.0, step=0.1, defval=1, group = group4) * 0.01
+shortTrailSrc = input.source(low, title="Trail Short Source", group=group4, tooltip = "Price to observe when lowering the trailing stop. Typically this is set to the close price. Note: This value is ignored if you attach the broker trailing stop.")
+
+InSession(sessionTimes) =>
+    not na(time(timeframe.period, sessionTimes))
+
+bgcolor(color=InSession(tradeTimes) ? color.new(color.green, 90) : color.new(color.white, 99))
+
+start     = timestamp(fromYear, fromMonth, fromDay, 00, 00)            // backtest start  window
+finish    = timestamp(thruYear, thruMonth, thruDay, 23, 59)            // backtest finish window
+window()  => time >= start and time <= finish ? true : false           // create function "within window of time"
+
+longStopPrice = 0.0, shortStopPrice = 0.0
+
+
+// ~~~~~~~~~~~ INPUTS ~~~~~~~~~~~ //
+showSignals = input.bool(true, "Show Signals", group="Momentum", tooltip="Sometimes it can be difficult to visualize the zones with signals enabled.")
+factorVolume = input.bool(false, "Factor Volume", group="Momentum", tooltip="Factor Volume only applies to Overly Bullish and Bearish Signals. It's when the Volume is > VWMA Volume over the Smoothing Length.")
+zoneLengths = input.int(50, "Zone Inside Length", group="Momentum", tooltip="The Zone Inside is the Inner zone of the High and Low. This is the length used to create it.")
+zoneOutsideLengths = input.int(75, "Zone Outside Length", group="Momentum", tooltip="The Zone Outside is the Outer zone of the High and Low. This is the length used to create it.")
+smoothingLength = input.int(14, "Smoothing length", group="Momentum", tooltip="Smoothing length is the length used to smooth out our Bullish and Bearish signals, along with our Overly Bullish and Overly Bearish Signals.")
+// Kernel Settings
+lookbackWindow = input.int(8, "Lookback Window", tooltip="The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50", group="Kernel Settings")
+relativeWeighting = input.float(8., "Relative Weighting", step=0.25, tooltip="Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25", group="Kernel Settings")
+startBar = input.int(25, "Start Regression at Bar", tooltip="Bar index on which to start regression. The first bars of a chart are often highly volatile, and omission of these initial bars often leads to a better overall fit. Recommended range: 5-25", group="Kernel Settings")
+
+// ~~~~~~~~~~~ CALCULATIONS ~~~~~~~~~~~ //
+//Kernal Zones
+highestHigh = kernels.rationalQuadratic(ta.highest(high, zoneLengths), lookbackWindow, relativeWeighting, startBar)
+lowestLow = kernels.rationalQuadratic(ta.lowest(low, zoneLengths), lookbackWindow, relativeWeighting, startBar)
+highestHighOutside = kernels.rationalQuadratic(ta.highest(high, zoneOutsideLengths), lookbackWindow, relativeWeighting, startBar)
+lowestLowOutside = kernels.rationalQuadratic(ta.lowest(low, zoneOutsideLengths), lookbackWindow, relativeWeighting, startBar)
+kernClose = kernels.rationalQuadratic(close, lookbackWindow, relativeWeighting, startBar)
+zoneMid = math.avg(highestHigh, lowestLow)
+
+//Bullish and bearish (these hold momentum and may be a safe way to know if the momentum is still going strong for the trend)
+bullishBar = kernels.rationalQuadratic(close, lookbackWindow, relativeWeighting, startBar) > kernels.rationalQuadratic(ta.highest(ta.vwma(ohlc4, smoothingLength), smoothingLength), lookbackWindow, relativeWeighting, startBar)
+bearishBar = kernels.rationalQuadratic(close, lookbackWindow, relativeWeighting, startBar) < kernels.rationalQuadratic(ta.lowest(ta.vwma(ohlc4, smoothingLength), smoothingLength), lookbackWindow, relativeWeighting, startBar)
+
+//Very bullish and bearish (these may represent when the momentum is about to change as they are almost TOO Bullish and Bearish
+rsi = kernels.rationalQuadratic(ta.rsi(close, smoothingLength), lookbackWindow, relativeWeighting, startBar)
+vol = kernels.rationalQuadratic(volume, lookbackWindow, relativeWeighting, startBar)
+volAvg = kernels.rationalQuadratic(ta.vwma(volume, smoothingLength), lookbackWindow, relativeWeighting, startBar)
+
+veryBullish = bullishBar and rsi >= 57 and (not factorVolume or vol > volAvg)
+veryBearish = bearishBar and rsi <= 43 and (not factorVolume or vol > volAvg)
+
+//Kernal Crossing Calculations
+kern1 = kernels.rationalQuadratic(close, lookbackWindow, relativeWeighting, startBar)
+kern2 = kernels.gaussian(close, lookbackWindow - 2, startBar)
+// Kernel Crossovers
+bool isBullishCross = ta.crossover(kern2, kern1)
+bool isBearishCross = ta.crossunder(kern2, kern1)
+
+
+// ~~~~~~~~~~~ PLOTS ~~~~~~~~~~~ //
+//Bullish and bearish bars (keeping the movement strong, may be safe to stay in)
+plotshape(showSignals and bullishBar and not veryBullish, style=shape.xcross, color = color.green, location=location.abovebar, title="Bullish Momentum")
+plotshape(showSignals and bearishBar and not veryBearish, style=shape.xcross, color = color.red, location=location.belowbar, title="Bearish Momentum")
+
+//Very Bullish and Bearish bars (has potential for a momentum change)
+//plotshape(showSignals and veryBullish, style=shape.cross, color = color.orange, location=location.abovebar, size=size.tiny, title="Overly Bullish")
+//plotshape(showSignals and veryBearish, style=shape.cross, color = color.teal, location=location.belowbar, size=size.tiny, title="Overly Bearish")
+
+//Kernal Cross
+plotshape(showSignals and isBullishCross, text = 'S', style=shape.labeldown, color = color.green, location=location.abovebar, size=size.small, title="Bull Cross")
+plotshape(showSignals and isBearishCross, text = 'B', style=shape.labelup, color = color.red, location=location.belowbar, size=size.small, title="Bear Cross")
+
+long_condition = isBearishCross
+if (allow_long == true and strategy.opentrades < defaultQty and long_condition)
+    
+    alert('{' +str.format('"action": "Buy","quantity":{0},"price": {1},"stopLoss": {2}', defaultQty, close, attachTrail == true?longTrailPerc * 100:0)+'}', alert.freq_once_per_bar )
+    strategy.entry("Long Entry", direction=strategy.long, qty=defaultQty)
+
+// set up trailing stop for the long
+longStopPrice := if (strategy.position_size > 0)
+    stopValue = longTrailSrc * (1 - longTrailPerc)
+    math.max(stopValue, longStopPrice[1])
+else
+    0
+
+// Trailing stop signal is sent to TradingView's backtest.
+if (strategy.position_size > 0)
+    strategy.exit(id="Trailing Exit", stop=longStopPrice)
+
+// Close the long positions if the direction indictator flips to bearish.
+// An exit signal is sent to TradersPost to cancel any existing stop orders and exit the position.
+// If you attached the broker trailing stop, that order will be cancelled.
+if (strategy.opentrades > 0 and strategy.opentrades.size(0) > 0 and isBullishCross)
+    strategy.close_all("Direction Exit")
+    alert('{' +str.format('"action": "Exit","price": {0}', close)+'}', alert.freq_once_per_bar )
+    
+var label lbl_5 = na
+var label lb_5 = na
+var line line_5 = na
+var line l_5 = na
+
+var label lbl_6 = na
+var label lb_6 = na
+var line line_6 = na
+var line l_6 = na
+if barstate.islast
+    line_len = 10
+    line_start = 4
+
+    line_len2 = line_len/2 + 2
+
+    p = 10
+    padding_right = 2
+    // highest lowest outsite
+    lbl_5 := label.new(na, na, "", color = #e90707, style = label.style_label_center, textcolor = color.white)
+    labelText_5 = str.tostring(lowestLowOutside, format.mintick)
+    label.set_xy(lbl_5, bar_index + line_len2+padding_right+1, lowestLowOutside)
+    label.set_text(lbl_5, labelText_5)
+    label.delete(lbl_5[1])
+
+    lb_5 := label.new(na, na, "Support Point", color = #e90707, style = label.style_label_left, textcolor = color.white)
+    label.set_xy(lb_5, bar_index + line_len2+padding_right+3, lowestLowOutside)
+    label.delete(lb_5[1])
+
+    line_5 := line.new(na, na, na, na, width = 1, color=color.blue, style = line.style_solid)
+    line.set_xy1(line_5, bar_index - p, lowestLowOutside)
+    line.set_xy2(line_5, bar_index+ line_len2+padding_right+1, lowestLowOutside)
+    line.delete(line_5[1])
+
+    l_5 := line.new(na, na, na, na, width = 6, color=color.blue, style = line.style_dotted)
+    line.set_xy1(l_5, bar_index - p, lowestLowOutside)
+    line.set_xy2(l_5, bar_index - p + 1, lowestLowOutside)
+    line.delete(l_5[1])
+
+    // highest 1h
+    lbl_6 := label.new(na, na, "", color = #e90707, style = label.style_label_center, textcolor = color.white)
+    labelText_6 = str.tostring(highestHighOutside, format.mintick)
+    label.set_xy(lbl_6, bar_index + line_len2+padding_right+1, highestHighOutside)
+    label.set_text(lbl_6, labelText_6)
+    label.delete(lbl_6[1])
+
+    lb_6 := label.new(na, na, "Resistant Point", color = #e90707, style = label.style_label_left, textcolor = color.white)
+    label.set_xy(lb_6, bar_index + line_len2+padding_right+3, highestHighOutside)
+    label.delete(lb_6[1])
+
+    line_6 := line.new(na, na, na, na, width = 1, color=color.blue, style = line.style_solid)
+    line.set_xy1(line_6, bar_index - p, highestHighOutside)
+    line.set_xy2(line_6, bar_index+ line_len2+padding_right+1, highestHighOutside)
+    line.delete(line_6[1])
+
+    l_6 := line.new(na, na, na, na, width = 6, color=color.blue, style = line.style_dotted)
+    line.set_xy1(l_6, bar_index - p, highestHighOutside)
+    line.set_xy2(l_6, bar_index - p + 1, highestHighOutside)
+    line.delete(l_6[1])
