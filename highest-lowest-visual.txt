@@ -1,0 +1,52 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+
+//@version=5
+indicator("Donald - Highest-Lowest Visual", shorttitle = "Donald - Highest-Lowest Visual",  overlay = true)
+
+import jdehorty/KernelFunctions/2 as kernels
+
+///     𝙐𝙎𝙀𝙍 𝙄𝙉𝙋𝙐𝙏𝙎     ///
+int length            = input(6,    group = "Ｓｅｔｔｉｎｇｓ")
+int offset            = input(4,     group = "Ｓｅｔｔｉｎｇｓ")
+series float src      = input(close, group = "Ｓｅｔｔｉｎｇｓ")
+bool Use_High_and_Low = input(false, group = "Ｓｅｔｔｉｎｇｓ")
+
+// Visual
+bool bar_color        = input(false,        group = "Ｖｉｓｕａｌ")
+color color_up        = input(color.blue, group = "Ｖｉｓｕａｌ")
+color color_dn        = input(color.red,  group = "Ｖｉｓｕａｌ")
+
+// Kernel Settings
+lookbackWindow = input.int(8, "Lookback Window", tooltip="The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50", group="Kernel Settings")
+relativeWeighting = input.float(8., "Relative Weighting", step=0.25, tooltip="Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25", group="Kernel Settings")
+startBar = input.int(25, "Start Regression at Bar", tooltip="Bar index on which to start regression. The first bars of a chart are often highly volatile, and omission of these initial bars often leads to a better overall fit. Recommended range: 5-25", group="Kernel Settings")
+
+
+highestHigh = kernels.rationalQuadratic(ta.highest(low, length), lookbackWindow, relativeWeighting, startBar)
+lowestLow = kernels.rationalQuadratic(ta.lowest(high, length), lookbackWindow, relativeWeighting, startBar)
+
+/// 𝙄𝙉𝘿𝙄𝘾𝘼𝙏𝙊𝙍 𝘾𝘼𝙇𝘾𝙐𝙇𝘼𝙏𝙄𝙊𝙉 ///
+var series float hlt = 0.0
+series float upper = highestHigh
+series float lower = lowestLow
+
+hlt :=  src > upper ? 
+         lower : src < lower ? 
+          upper : nz(hlt)
+
+///      𝙋𝙇𝙊𝙏         ///
+color color = src >= hlt 
+             ? color_up 
+             : color_dn
+
+p1 = plot(hlt, 
+         color = color,
+         style = plot.style_cross
+         )
+         
+p2 = plot(src, display = display.none)
+
+fill(p1, p2, color = color.new(color, 80))
+
+// Bar color
+barcolor(bar_color ? color : na)
