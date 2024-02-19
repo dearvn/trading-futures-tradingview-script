@@ -137,14 +137,20 @@ method update(FVG _id, _h, _l, _p) =>
                 cUB.set_top(math.min(_l, bMB))
 
                 if fvgPR
-                    cTB.set_text("Bullish "+str.tostring((tMB - math.min(_l, bMB)) / (tMB - bUB), '#.#%'))
+                    if (tMB - math.min(_l, bMB)) / (tMB - bUB) >= 0.5
+                        cTB.set_text("Stop LONG")
+                    if (tMB - math.min(_l, bMB)) / (tMB - bUB) < 0.1
+                        cTB.set_text("Start LONG")
+                    else
+                        cTB.set_text("Bullish "+str.tostring((tMB - math.min(_l, bMB)) / (tMB - bUB), '#.#%'))
                     //cTB.set_text('Bullish')
                 cnt := -1
             else
                 cMB.set_bottom(bUB)
                 cUB.set_top(bUB)
 
-                cTB.set_text('Can Exit?')
+                //cTB.set_text('Can Exit?')
+                cTB.set_text("L: "+str.tostring((tMB - math.min(_l, bMB)) / (tMB - bUB), '#.#%'))
                 cnt := 1
 
                 fvg.clear(fvgVF)
@@ -156,14 +162,19 @@ method update(FVG _id, _h, _l, _p) =>
                 cUB.set_bottom(math.max(_h, tMB))
 
                 if fvgPR
-                    cTB.set_text("Bearish "+str.tostring((math.max(_h, tMB) - bMB) / (tUB - bMB), '#.#%'))
+                    if (math.max(_h, tMB) - bMB) / (tUB - bMB) >= 0.5
+                        cTB.set_text('Stop SHORT')
+                    else if (math.max(_h, tMB) - bMB) / (tUB - bMB) >= 0.1
+                        cTB.set_text('Start SHORT')
+                    else
+                        cTB.set_text("Bearish "+str.tostring((math.max(_h, tMB) - bMB) / (tUB - bMB), '#.#%'))
                     //cTB.set_text('Bearish')
             else
                 cMB.set_top(tUB)
                 cUB.set_bottom(tUB)
 
-                cTB.set_text('Continue S')
-
+                //cTB.set_text('Continue S')
+                cTB.set_text("S: "+str.tostring((math.max(_h, tMB) - bMB) / (tUB - bMB), '#.#%'))
                 fvg.clear(fvgVF)
 
     cMB.set_right(b.i)
@@ -483,6 +494,44 @@ strat_pos_size = strategy.position_size
 //===================================================
 
 
+var label lbl_5 = na
+var label lb_5 = na
+var line line_5 = na
+var line l_5 = na
+
+var label lbl_6 = na
+var label lb_6 = na
+var line line_6 = na
+var line l_6 = na
+if lowestLowOutside > lowestLowOutside[1]
+
+    // highest lowest outsite
+    lbl_5 := label.new(na, na, "", color = #e90707, style = label.style_none, textcolor = color.white)
+    labelText_5 = str.tostring(lowestLowOutside, format.mintick)
+    label.set_xy(lbl_5, bar_index, lowestLowOutside)
+    label.set_text(lbl_5, labelText_5)
+    label.delete(lbl_5[1])
+
+
+    line_5 := line.new(na, na, na, na, width = 1, color=color.orange, style = line.style_solid)
+    line.set_xy1(line_5, bar_index - 10, lowestLowOutside)
+    line.set_xy2(line_5, bar_index+10, lowestLowOutside)
+    line.delete(line_5[1])
+
+if highestHighOutside > highestHighOutside[1]
+    // highest 1h
+    lbl_6 := label.new(na, na, "", color = #e90707, style = label.style_none, textcolor = color.white)
+    labelText_6 = str.tostring(highestHighOutside, format.mintick)
+    label.set_xy(lbl_6, bar_index, highestHighOutside)
+    label.set_text(lbl_6, labelText_6)
+    label.delete(lbl_6[1])
+
+
+    line_6 := line.new(na, na, na, na, width = 1, color=color.blue, style = line.style_solid)
+    line.set_xy1(line_6, bar_index - 10, highestHighOutside)
+    line.set_xy2(line_6, bar_index + 10, highestHighOutside)
+    line.delete(line_6[1])
+
 // ===============================
 // ==== Long Trade Conditions ====
 // ===============================
@@ -499,9 +548,9 @@ l_cond3 = long_ema2_retest_bars >= 0 and long_ema2_retest_bars < retestBars
 //must be closed above the ema1
 l_cond4 = long_close_above_ema1 == 1
 
-//l_cond5 = src >= hlt 
+l_cond5 = low[1] <= lowestLowOutside and low > lowestLowOutside
 //now combined into one condition
-long_condition = l_cond1 and ( l_cond0 and l_cond2 and l_cond3 and l_cond4 and not veryBearish and bull) // or l_cond5 and not veryBearish and bull)
+long_condition = l_cond1 and ( l_cond0 and l_cond2 and l_cond3 and l_cond4  and not veryBearish and bull )
 
 
 
