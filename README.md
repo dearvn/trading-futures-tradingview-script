@@ -1,6 +1,9 @@
 # Update new indicator trailing
 
+Lux-Trailing-BUY_SELL.txt
+
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/trailing.png?raw=true "SPX")
+
 
 # Updated new strategy
 nq-est-futres.txt
