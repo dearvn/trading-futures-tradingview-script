@@ -1,0 +1,592 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// @donaldit.net
+
+
+//@version=5
+indicator("DonaldIt.net - Lux Trailing", overlay=true, max_lines_count = 500)
+
+import jdehorty/KernelFunctions/2 as kernels
+
+// ~~~~~~~~~~~ INPUTS ~~~~~~~~~~~ //
+showBox = input.bool(true, "Show Box", group="Momentum", tooltip="Sometimes it can be difficult to visualize the zones with signals enabled.")
+zoneLengths = input.int(50, "Zone Inside Length", group="Momentum", tooltip="The Zone Inside is the Inner zone of the High and Low. This is the length used to create it.")
+zoneOutsideLengths = input.int(75, "Zone Outside Length", group="Momentum", tooltip="The Zone Outside is the Outer zone of the High and Low. This is the length used to create it.")
+smoothingLength = input.int(14, "Smoothing length", group="Momentum", tooltip="Smoothing length is the length used to smooth out our Bullish and Bearish signals, along with our Overly Bullish and Overly Bearish Signals.")
+// Kernel Settings
+lookbackWindow = input.int(18, "Lookback Window", tooltip="The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50", group="Kernel Settings")
+relativeWeighting = input.float(8., "Relative Weighting", step=0.25, tooltip="Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25", group="Kernel Settings")
+startBar = input.int(25, "Start Regression at Bar", tooltip="Bar index on which to start regression. The first bars of a chart are often highly volatile, and omission of these initial bars often leads to a better overall fit. Recommended range: 5-25", group="Kernel Settings")
+
+// ~~~~~~~~~~~ CALCULATIONS ~~~~~~~~~~~ //
+//Kernal Zones
+high15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=high, lookahead=barmerge.lookahead_on)
+low15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=low, lookahead=barmerge.lookahead_on)
+close15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=close, lookahead=barmerge.lookahead_on)
+
+highestHigh = kernels.rationalQuadratic(ta.highest(high15, zoneLengths), lookbackWindow, relativeWeighting, startBar)
+lowestLow = kernels.rationalQuadratic(ta.lowest(low15, zoneLengths), lookbackWindow, relativeWeighting, startBar)
+highestHighOutside = kernels.rationalQuadratic(ta.highest(high15, zoneOutsideLengths), lookbackWindow, relativeWeighting, startBar)
+lowestLowOutside = kernels.rationalQuadratic(ta.lowest(low15, zoneOutsideLengths), lookbackWindow, relativeWeighting, startBar)
+kernClose = kernels.rationalQuadratic(close15, lookbackWindow, relativeWeighting, startBar)
+zoneMid = math.avg(highestHigh, lowestLow)
+
+//Bullish and bearish (these hold momentum and may be a safe way to know if the momentum is still going strong for the trend)
+bullishBar = kernels.rationalQuadratic(close, lookbackWindow, relativeWeighting, startBar) > kernels.rationalQuadratic(ta.highest(ta.vwma(ohlc4, smoothingLength), smoothingLength), lookbackWindow, relativeWeighting, startBar)
+bearishBar = kernels.rationalQuadratic(close, lookbackWindow, relativeWeighting, startBar) < kernels.rationalQuadratic(ta.lowest(ta.vwma(ohlc4, smoothingLength), smoothingLength), lookbackWindow, relativeWeighting, startBar)
+
+//Very bullish and bearish (these may represent when the momentum is about to change as they are almost TOO Bullish and Bearish
+rsi = kernels.rationalQuadratic(ta.rsi(close, smoothingLength), lookbackWindow, relativeWeighting, startBar)
+vol = kernels.rationalQuadratic(volume, lookbackWindow, relativeWeighting, startBar)
+
+//Kernal Crossing Calculations
+kern1 = kernels.rationalQuadratic(close15, lookbackWindow, relativeWeighting, startBar)
+kern2 = kernels.gaussian(close15, lookbackWindow - 2, startBar)
+// Kernel Crossovers
+bool isBullishCross = ta.crossover(kern2, kern1)
+bool isBearishCross = ta.crossunder(kern2, kern1)
+
+order_time = hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") >=30 or hour(time_close, "UTC-8") > 6 and hour(time_close, "UTC-8") < 15
+
+leftBars = 5
+rightBars = 3
+
+
+// Make sure length and lengthSmooth settings match your COG indicator
+length = 9
+lengthSmooth = 3
+
+
+COG = ta.cog(close, length)
+sCOG = ta.rma(COG, lengthSmooth)
+ph = ta.pivothigh(sCOG, leftBars, rightBars)
+pl = ta.pivotlow(sCOG, leftBars, rightBars)
+
+phvalue1    = ta.valuewhen(ph, high[rightBars], 0)
+phbar1      = ta.valuewhen(ph, bar_index[rightBars], 0),        phv1low = ta.valuewhen(ph, close[rightBars]>open[rightBars] ? close[rightBars] : open[rightBars], 0)
+phvalue2    = ta.valuewhen(ph, high[rightBars], 1)
+phbar2      = ta.valuewhen(ph, bar_index[rightBars], 1),        phv2low = ta.valuewhen(ph, close[rightBars]>open[rightBars] ? close[rightBars] : open[rightBars], 1)
+
+plvalue1    = ta.valuewhen(pl, low[rightBars], 0)
+plbar1 = ta.valuewhen(pl, bar_index[rightBars], 0), plv1low = ta.valuewhen(pl, close[rightBars]<open[rightBars] ? close[rightBars] : open[rightBars], 0)
+plvalue2    = ta.valuewhen(pl, low[rightBars], 1)
+plbar2      = ta.valuewhen(pl, bar_index[rightBars], 1)
+
+// Initialize variables for use in findPreviousHighsAndLows function
+if_pl = not na(pl) ? -1 : na
+hl = not na(ph) ? 1 : if_pl
+if_pl_value = not na(pl) ? pl : na
+if_ph_value = not na(ph) ? ph : if_pl_value
+valuewhen_1 = ta.valuewhen(hl, hl, 1)
+valuewhen_2 = ta.valuewhen(if_ph_value, if_ph_value, 1)
+if_ph_value := not na(pl) and hl == -1 and valuewhen_1 == -1 and pl > valuewhen_2 ? na : if_ph_value
+valuewhen_3 = ta.valuewhen(hl, hl, 1)
+valuewhen_4 = ta.valuewhen(if_ph_value, if_ph_value, 1)
+if_ph_value := not na(ph) and hl == 1 and valuewhen_3 == 1 and ph < valuewhen_4 ? na : if_ph_value
+valuewhen_5 = ta.valuewhen(hl, hl, 1)
+valuewhen_6 = ta.valuewhen(if_ph_value, if_ph_value, 1)
+hl := hl == -1 and valuewhen_5 == 1 and if_ph_value > valuewhen_6 ? na : hl
+valuewhen_7 = ta.valuewhen(hl, hl, 1)
+valuewhen_8 = ta.valuewhen(if_ph_value, if_ph_value, 1)
+hl := hl == 1 and valuewhen_7 == -1 and if_ph_value < valuewhen_8 ? na : hl
+if_ph_value := na(hl) ? na : if_ph_value
+
+// Finds previous three points (b, c, d, e)
+findPreviousHighsAndLows() =>  
+    ehl = hl == 1 ? -1 : 1
+    loc1 = 0.0
+    loc2 = 0.0
+    loc3 = 0.0
+    loc4 = 0.0
+    xx = 0
+    for x = 1 to 1000 by 1
+        if hl[x] == ehl and not na(if_ph_value[x])
+            loc1 := if_ph_value[x]
+            xx := x + 1
+            break
+    ehl := hl
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(if_ph_value[x])
+            loc2 := if_ph_value[x]
+            xx := x + 1
+            break
+    ehl := hl == 1 ? -1 : 1
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(if_ph_value[x])
+            loc3 := if_ph_value[x]
+            xx := x + 1
+            break
+    ehl := hl
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(if_ph_value[x])
+            loc4 := if_ph_value[x]
+            break
+    [loc1, loc2, loc3, loc4]
+
+float a = na
+float b = na
+float c = na
+float d = na
+float e = na
+if not na(hl)
+    [loc1, loc2, loc3, loc4] = findPreviousHighsAndLows()
+    a := if_ph_value
+    b := loc1
+    c := loc2
+    d := loc3
+    e := loc4
+    e
+
+_hl = not na(if_ph_value) and (a >= c and b > c and b > d and d > c and d > e or a < b and a > c and b < d)
+_lh = not na(if_ph_value) and (a <= c and b < c and b < d and d < c and d < e or a > b and a < c and b > d)
+// If we also wanted higher highs and lower lows, we could use the following:
+_hh = not na(if_ph_value) and a > b and a > c and c > b and c > d
+_ll = not na(if_pl_value) and a < b and a < c and c < b and c < d
+
+extend_fibo = 5
+extend_sup_res = 5
+var float high_point = 0
+var float low_point = 0
+if _ll
+    line.new(bar_index, high, bar_index+8, high,  style=line.style_solid, color=color.yellow, width = 1)
+    high_point := high
+if _hh and order_time
+    line.new(bar_index, low, bar_index+8, low,  style=line.style_solid, color=color.white, width = 1)
+    low_point := low
+
+
+
+
+//plotshape(_hh, text='HL', title='Higher Low', style=shape.labelup, color=color.new(color.green, 50), textcolor=color.new(color.white, 0), location=location.belowbar, size=size.normal)
+//plotshape(_ll, text='LH', title='Lower High', style=shape.labeldown, color=color.new(color.red, 50), textcolor=color.new(color.white, 0), location=location.abovebar, size=size.normal)
+
+distance_x = timenow + math.round(ta.change(time) * 12)
+distance_x2 = timenow + math.round(ta.change(time)/5)
+
+///////////////////////////////////////
+var float Open5M_HighPrice = 0.0
+var float Open5M_LowPrice = 0.0
+var float Open5M_ClosePrice = 0.0
+var float Next5M_ClosePrice = 0.0
+if hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") == 35 and second(time_close, "UTC-8") == 0
+    Open5M_HighPrice := high
+    Open5M_LowPrice := low
+    Open5M_ClosePrice := close
+
+if hour(time_close, "UTC-8") == 6 and minute(time_close, "UTC-8") == 45 and second(time_close, "UTC-8") == 0
+    Next5M_ClosePrice := close
+
+var string message = ''
+var string market_trend = ''
+if Next5M_ClosePrice < Open5M_ClosePrice
+    message := str.format("Marketing is trending PUT today.  Look for Up Candle.  ENTER PUT", Open5M_HighPrice + 3)
+    market_trend := 'Bearish'
+if Next5M_ClosePrice > Open5M_ClosePrice
+    message := str.format("Marketing is trending Call today.  Look for Down Candle.  ENTER CALL", Open5M_HighPrice - 3)
+    market_trend := 'Bullish'
+
+flash_message = ''
+if close >= Open5M_HighPrice + 25
+    flash_message := 'CALL STRONG'
+if close < Open5M_LowPrice - 25
+    flash_message := 'PUT STRONG'
+
+var int barindex = na
+if minute(time_close, "UTC-8") == 45 and hour(time_close, "UTC-8") == 6
+    barindex := bar_index
+
+
+// if market_trend != '' and not na(barindex)
+//     if flash_message != ''
+//         label lbl_f = na
+//         label.delete(lbl_f)
+//         lbl_f := label.new(na, na, "", color = #212223, style = label.style_label_center, textcolor = color.yellow)
+//         label.set_xy(lbl_f, barindex, Open5M_HighPrice)
+//         label.set_text(lbl_f, flash_message)
+
+//     label lbl_t = na
+//     label.delete(lbl_t)
+//     lbl_t := label.new(na, na, "", color = #077280, style = label.style_label_center, textcolor = color.white)
+//     label.set_xy(lbl_t, barindex, Open5M_HighPrice - 5)
+//     label.set_text(lbl_t, '1st Trend: '+market_trend)
+
+
+
+Previous_Close = request.security(symbol=syminfo.tickerid, timeframe="D", expression=close[1], lookahead=barmerge.lookahead_on)
+
+DailyGain = close - Previous_Close
+Below_OpenLow = Open5M_LowPrice - 5
+Above_OpenHigh = Open5M_HighPrice + 5
+
+var float Next_Down_Target = na
+var float Next_Up_Target = na
+if close < Below_OpenLow and DailyGain > 3
+    Next_Down_Target := Open5M_LowPrice - 18
+
+if close > Above_OpenHigh and DailyGain < 3
+    Next_Up_Target := Open5M_HighPrice + 18
+
+
+LastHighPrice = ta.highest(20)
+LastLowPrice = ta.lowest(20)
+
+var string can_message = na
+if close > LastHighPrice and close < close[1]
+    // var label lbl_p = na
+    // label.delete(lbl_p)
+    // lbl_p := label.new(na, na, "", color = #077280, style = label.style_label_down, textcolor = color.red)
+    // label.set_xy(lbl_p, bar_index, close)
+    // label.set_text(lbl_p, 'PUT')
+
+    can_message := str.format("Last high is {0}. Possible turn back to {1}", LastHighPrice, LastLowPrice)
+
+if close < LastLowPrice and close > close[1]
+    // var label lbl_c= na
+    // label.delete(lbl_c)
+    // lbl_c := label.new(na, na, "", color = #077280, style = label.style_label_up, textcolor = color.green)
+    // label.set_xy(lbl_c, bar_index, close)
+    // label.set_text(lbl_c, 'CALL')
+
+    can_message := str.format("Last low is {0}. Possible turn back to {1}", LastLowPrice, LastHighPrice)
+
+
+
+///box
+
+var int start_time = na
+var int end_time = timenow + math.round(ta.change(time) * 1)
+if minute(time_close, "UTC-8") == 35 and hour(time_close, "UTC-8") == 6
+    start_time := time
+
+//if hour(time_close, "UTC-8") >= 13
+end_time := start_time+3600000*6 + 1800000
+
+
+
+var float point_entry_call = 18
+var float point_exit_call = 20
+
+var float point_entry_put = 18
+var float point_exit_put = 17
+
+if (Open5M_HighPrice - Open5M_LowPrice) >= 9 and math.abs(Open5M_ClosePrice - Previous_Close) >= 40
+    point_entry_call := 27
+    point_entry_put := 27
+
+    point_exit_call := 30
+    point_exit_put := 27
+
+if (Open5M_HighPrice - Open5M_LowPrice) < 9 and math.abs(Open5M_ClosePrice - Previous_Close) < 40
+    point_entry_call := 17
+    point_entry_put := 17
+
+    point_exit_call := 20
+    point_exit_put := 17
+
+// Logic detect start
+nzVolume  = nz(vol)
+
+i_vSMA = kernels.rationalQuadratic(ta.vwma(vol, smoothingLength), lookbackWindow, relativeWeighting, startBar)
+
+risingVol = nzVolume >= nzVolume[1]
+bullCandle = close > open
+bearCandle = close < open
+
+rising = false
+if bullCandle and bullCandle[1] and bullCandle[2] and nzVolume > i_vSMA and risingVol and risingVol[1]
+    if isBullishCross
+        rising := true
+    isBullishCross := false
+
+falling = false
+if bearCandle and bearCandle[1] and bearCandle[2] and nzVolume > i_vSMA and risingVol and risingVol[1]
+    if isBearishCross
+        falling := true
+    isBearishCross := false
+
+// Logic detect end_time
+
+// Logic call put now stat
+var float detect_put_point = 0
+var float detect_call_point = 0
+
+var float enter_call_price = 0.0
+var float enter_put_price = 0.0
+
+var float trailing_put_point = 0.0
+var float trailing_call_point = 0.0
+
+var float High_Track = 0.0
+if minute(time_close, "UTC-8") == 45 and hour(time_close, "UTC-8") == 6 and Open5M_HighPrice != 0.0
+    High_Track := Open5M_HighPrice
+
+var float Low_Track = 0.0
+if minute(time_close, "UTC-8") == 45 and hour(time_close, "UTC-8") == 6 and Open5M_LowPrice != 0.0
+    Low_Track := Open5M_LowPrice
+
+// trailing put point start ===============
+// if price > high open then check trend up to PUT back
+if High_Track != 0.0 and high> High_Track
+    if trailing_put_point == 0.0 or trailing_put_point != 0.0 and trailing_put_point < high - Low_Track
+        trailing_put_point := low - Low_Track
+    
+var float track_trailing_put_point = 0
+
+if trailing_put_point > point_entry_put
+    track_trailing_put_point := trailing_put_point
+
+trailing_put_ok = false
+var int barindex_put = 0
+if (track_trailing_put_point > 0 and (high - Low_Track) <= (track_trailing_put_point - 2))
+    if High_Track != 0.0
+        High_Track := 0.0
+        barindex_put := bar_index
+    trailing_put_point := 0.0
+    track_trailing_put_point := 0.0
+    trailing_put_ok := true
+
+if High_Track == 0.0 and barindex_put == bar_index + 1
+    High_Track := high > high_point ? high : high_point
+    Low_Track := low
+    barindex_put := 0
+// trailing put point end ==============
+
+
+// trailing call point start ===============
+// if price < low open then check trend down to CALL back
+if Low_Track != 0.0 and low < Low_Track
+    if trailing_call_point == 0.0 or trailing_call_point != 0.0 and trailing_call_point < High_Track - low
+        trailing_call_point := High_Track - low
+    
+var float track_trailing_call_point = 0
+
+if trailing_call_point > point_entry_call
+    track_trailing_call_point := trailing_call_point
+
+trailing_call_ok = false
+var int barindex_call = 0
+if (track_trailing_call_point > 0 and (High_Track - low) <= (track_trailing_call_point - 2))
+    if Low_Track != 0.0
+        Low_Track := 0.0
+        barindex_call := bar_index
+    trailing_call_point := 0.0
+    track_trailing_call_point := 0.0
+    trailing_call_ok := true
+
+if Low_Track == 0.0 and barindex_call == bar_index + 1
+    Low_Track := low < low_point ? low : low_point
+    High_Track := high
+    barindex_call := 0
+// trailing call point end ==============
+
+
+//=================logic detect call put start
+if high_point - low > point_entry_call
+    detect_call_point := high_point - low
+
+detect_call_now = false
+if (detect_call_point > 0 and (high_point - close) <= (detect_call_point - 2)) or (close > open and close > close[1] and market_trend == 'Bullish' and ta.crossover(low, Open5M_HighPrice))
+    detect_call_point := 0
+    detect_call_now := true
+
+if high - low_point > point_entry_put
+    detect_put_point := high - low_point
+detect_put_now = false
+if (detect_put_point > 0 and (close - low_point) <= (detect_put_point - 2)) or (close < open and close < close[1] and market_trend == 'Bearish' and ta.crossunder(high, Open5M_LowPrice))
+    detect_put_point := 0
+    detect_put_now := true
+
+is_call = order_time and (trailing_call_ok) and barstate.isconfirmed
+call_color = #f1807e
+var bool trend_call = false
+if is_call
+    enter_call_price := close
+    enter_put_price := na
+    trend_call := true
+
+is_put = order_time and (trailing_put_ok) and barstate.isconfirmed
+put_color = #ef0e0a
+var bool trend_put = false
+if is_put
+    enter_call_price := na
+    enter_put_price := close
+    trend_put := true
+
+//=================logic detect call put end
+
+
+only_call = false
+only_call_color = #90EE90
+continue_call = enter_call_price > 0 and close > open and close > close[1] and (rising or isBullishCross or ta.crossover(high, Below_OpenLow) or ta.crossover(high, Above_OpenHigh)) and barstate.isconfirmed
+if trend_call and continue_call
+    only_call := true
+    trend_call := false
+
+only_put = false
+only_put_color = #ffcccb
+continue_put = enter_put_price > 0 and close < open and close < close[1] and (falling or isBearishCross or ta.crossunder(low, Below_OpenLow) or ta.crossunder(low, Above_OpenHigh)) and barstate.isconfirmed
+if trend_put and continue_put
+    only_put := true
+    trend_put := false
+
+// logic exit 
+
+// // logic trailing exit
+// var float gain_call = 0.0
+// var float gain_put = 0.0
+// if enter_call_price != 0.0
+//     if gain_call == 0.0 or gain_call < close - enter_call_price
+//         gain_call := close - enter_call_price
+
+// is_exit_call = false 
+// if not continue_call and (gain_call >= 13 and (close - enter_call_price) <= (gain_call - 2)) or (gain_call >= 8 and (close - enter_call_price) <= (gain_call - 3))
+//     is_exit_call := true
+//     enter_call_price := 0.0
+//     trend_call := false
+//     gain_call := 0.0
+
+// if enter_put_price != 0.0
+//     if gain_put == 0.0 or gain_put < close - enter_call_price
+//         gain_put := close - enter_call_price
+
+// is_exit_put = false 
+// if not continue_put and (gain_put >= 13 and (close - enter_put_price) <= (gain_put - 2)) or (gain_put >= 8 and (close - enter_put_price) <= (gain_put - 5))
+//     is_exit_put := true
+//     enter_put_price := 0.0
+//     trend_put := false
+//     gain_put := 0.0
+// // logic call put end
+
+interval = time + math.round(ta.change(time) * 8)
+////////////////////////////////////strong call start
+var int call_strong_int = 0
+if minute(time_close, "UTC-8") == 45 and hour(time_close, "UTC-8") == 6 or (minute(time_close, "UTC-8") > 45 and hour(time_close, "UTC-8") == 6 or hour(time_close, "UTC-8") > 6) and close - Open5M_LowPrice < 25
+    call_strong_int := 0
+
+strong_call_index = 0
+is_strong_call = false
+if not is_put and Open5M_LowPrice > 0 and low - Open5M_LowPrice >= 25
+    call_strong_int := call_strong_int + 1
+
+    if call_strong_int < 2
+        strong_call_index := bar_index
+
+if strong_call_index > 0
+    var label label_sc = na
+    label.delete(label_sc)
+    label_sc := label.new(x=interval, y=low, text="X2 BUY", color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    line.new(strong_call_index, Open5M_LowPrice+25, strong_call_index+10, Open5M_LowPrice+25,  style=line.style_dotted, color=color.yellow, width = 2)
+
+    is_strong_call := true
+
+//if call_strong_int > 0 and high > Open5M_LowPrice+40
+//    is_put := false
+
+plotshape(order_time and is_strong_call? low : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=color.yellow, textcolor = #ffffff,  text='BUY', offset=0)
+////////////////////////////////////strong call end
+
+////////////////////////////////////strong put start
+var int put_strong_int = 0
+if minute(time_close, "UTC-8") == 45 and hour(time_close, "UTC-8") == 6 or (minute(time_close, "UTC-8") > 45 and hour(time_close, "UTC-8") == 6 or hour(time_close, "UTC-8") > 6) and Open5M_HighPrice - close < 25
+    put_strong_int := 0
+
+strong_put_index = 0
+if not is_call and Open5M_HighPrice > 0 and Open5M_HighPrice - high >= 25
+    put_strong_int := put_strong_int + 1
+
+    if put_strong_int < 2
+        strong_put_index := bar_index
+
+is_strong_put = false
+if strong_put_index > 0
+    var label label_sc = na
+    label.delete(label_sc)
+    label_sc := label.new(x=interval, y=low, text="X2 SELL", color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    line.new(strong_put_index, Open5M_HighPrice-25, strong_put_index+10, Open5M_HighPrice-25,  style=line.style_dotted, color=color.yellow, width = 2)
+
+    is_strong_put := true
+
+//if put_strong_int > 0 and low < Open5M_HighPrice-40
+//    is_call := false
+
+plotshape(order_time and is_strong_put? high : na, style=shape.triangledown, size = size.tiny, location=location.abovebar, color=color.white, textcolor = #ffffff,  text='SELL', offset=0)
+////////////////////////////////////strong put end
+
+////////////////////////////////////signal call put start
+var bool has_signal_call = false
+is_signal_call = low_point > 0 and (close > low_point and math.round(low) == math.round(low_point)) and low > Below_OpenLow
+//plotshape(order_time and is_signal_call and not has_signal_call? low : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=color.yellow, textcolor = #ffffff,  text='CALL', offset=0)
+if is_signal_call and order_time
+    has_signal_call := true
+if is_put
+    has_signal_call := false
+
+if _ll
+    has_signal_call := false
+if put_strong_int > 0
+    is_signal_call := false
+
+var bool has_signal_put = false
+is_signal_put = high_point > 0 and (close < high_point and math.round(high) == math.round(high_point)) and high < Above_OpenHigh
+//plotshape(order_time and is_signal_put and not has_signal_put? high : na, style=shape.triangledown, size = size.tiny, location=location.abovebar, color=color.white, textcolor = #ffffff,  text='PUT', offset=0)
+if is_signal_put and order_time
+    has_signal_put := true
+if is_call
+    has_signal_put := false
+
+if _hh
+    has_signal_put := false
+if call_strong_int > 0
+    is_signal_put := false
+
+
+////////////////////////////////////signal call put end
+
+
+/////////////////////////////////
+// Logic cross box high
+if ta.crossover(close[1], Open5M_HighPrice) and close > Open5M_HighPrice and order_time and barstate.isconfirmed
+    is_call := true
+    call_color := color.new(call_color, 80)
+
+if ta.crossover(close[1], Above_OpenHigh) and close > Above_OpenHigh and order_time and barstate.isconfirmed
+    is_call := true
+    call_color := color.new(call_color, 60)
+
+if trend_put and ta.crossunder(close[1], Open5M_HighPrice) and close < Open5M_HighPrice
+    only_put := true
+    only_put_color := color.new(#ffcccb, 80)
+
+if trend_put and ta.crossunder(close[1], Above_OpenHigh) and close < Above_OpenHigh
+    only_put := true
+    only_put_color := color.new(#ffcccb, 60)
+
+// Logic cross box low
+if ta.crossunder(close[1], Open5M_LowPrice) and close < Open5M_LowPrice and order_time and barstate.isconfirmed
+    is_put := true
+    put_color := color.new(#ef0e0a, 80)
+
+if ta.crossunder(close[1], Below_OpenLow) and close < Below_OpenLow and order_time and barstate.isconfirmed
+    is_put := true
+    put_color := color.new(#ef0e0a, 60)
+
+if trend_call and ta.crossover(close[1], Open5M_LowPrice) and close > Open5M_LowPrice
+    only_call := true
+    only_call_color := color.new(#90EE90, 80)
+
+if trend_call and ta.crossover(close[1], Below_OpenLow) and close > Below_OpenLow
+    only_call := true
+    only_call_color := color.new(#90EE90, 60)
+
+//plotshape(is_exit_call? low : na, style=shape.labelup, size = size.tiny, location=location.belowbar, color=#f1807e, textcolor = #ffffff,  text='EXIT CALL', offset=0)
+//plotshape(is_exit_put? high : na, style=shape.labeldown, size = size.tiny, location=location.abovebar, color=#ef0e0a, textcolor = #ffffff,  text='EXIT PUT', offset=0)
+
+
+plotshape(is_call? low : na, style=shape.labelup, size = size.tiny, location=location.belowbar, color=call_color, textcolor = #ffffff,  text='BUY', offset=0)
+plotshape(is_put? high : na, style=shape.labeldown, size = size.tiny, location=location.abovebar, color=put_color, textcolor = #ffffff,  text='SELL', offset=0)
+
+plotshape(not is_put and only_put and order_time? high15 : na, style=shape.labeldown, size = size.tiny, location=location.abovebar, color=only_put_color, textcolor = #000000, text='Hold SELL', offset=0)
+plotshape(not is_call and only_call and order_time? low15 : na, style=shape.labelup, size = size.tiny, location=location.belowbar, color=only_call_color, textcolor = #000000, text='Hold BUY', offset=0)
+
+
+//alert('{"ticker":"'+str.format("{0}", syminfo.ticker)+'","call_now":"'+str.tostring(is_call ? 1 : 0)+'","put_now":"'+str.tostring(is_put ? 1 : 0)+'"}', alert.freq_once_per_bar)
+
