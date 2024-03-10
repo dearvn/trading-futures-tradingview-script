@@ -2,6 +2,9 @@
 
 Please access: https://www.patreon.com/posts/80-accurate-and-100086795
 
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/trailing-es.png?raw=true "ESSPX")
+
+
 # Update new indicator trailing
 
 Lux-Trailing-BUY_SELL.txt
