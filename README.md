@@ -1,6 +1,7 @@
 # $ES futures, $SPX strategy 80% accurate:
 
-Please access: https://www.patreon.com/posts/80-accurate-and-100086795
+Please access: 
+https://www.patreon.com/donaldit/shop/advanced-es-spx-trading-strategy-1m-2m-150909
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/trailing-es.png?raw=true "ESSPX")
 
