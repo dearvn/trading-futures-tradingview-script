@@ -1,3 +1,7 @@
+# $ES futures, $SPX strategy 80% accurate:
+
+Please access: https://www.patreon.com/posts/80-accurate-and-100086795
+
 # Update new indicator trailing
 
 Lux-Trailing-BUY_SELL.txt
