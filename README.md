@@ -5,6 +5,12 @@ https://www.patreon.com/donaldit/shop/advanced-es-spx-trading-strategy-1m-2m-150
 
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/trailing-es.png?raw=true "ESSPX")
 
+# Add indicator High Low Super for SPX, ES, ETH...
+
+supper-high-low-live.txt
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/high-low.png?raw=true "ETH")
+
 
 # Update new indicator trailing
 
