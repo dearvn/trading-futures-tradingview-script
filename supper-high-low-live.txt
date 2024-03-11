@@ -1,0 +1,118 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © donaldit
+
+//@version=5
+indicator("Donaltit.net - High Low Live Super", overlay = true, max_labels_count = 500, max_lines_count = 500, max_polylines_count = 100)
+
+float pull_back = 2
+float point_entry_call = 20
+float point_entry_put = 20
+
+if str.format("{0}", timeframe.period) == '2'
+    pull_back := 1.4
+if str.format("{0}", timeframe.period) == '5'
+    pull_back := 1
+
+interval = time + math.round(ta.change(time) * 8)
+interval2 = time + math.round(ta.change(time) * 2)
+
+////////////////////////////////////strong call start
+var float LowPrice = 0.0
+var float HighPrice = 0.0
+
+var int bar_index_high = 0
+var int bar_index_low = 0
+
+if minute(time_close, "UTC-8") <= 45 and hour(time_close, "UTC-8") == 6 or hour(time_close, "UTC-8") < 6
+    HighPrice := 0.0
+    LowPrice := 0.0
+
+    bar_index_high := 0
+    bar_index_low := 0
+
+////////////////////////////////////////////////// logic trailing start
+var float Low_Price = 0.0
+var float High_Price = 0.0
+
+var int bar_index_high_price = 0
+var int bar_index_low_price = 0
+
+if minute(time_close, "UTC-8") <= 30 and hour(time_close, "UTC-8") == 6 or hour(time_close, "UTC-8") < 6
+    High_Price := 0.0
+    Low_Price := 0.0
+    
+    bar_index_high_price := 0
+    bar_index_low_price := 0
+
+if Low_Price == 0.0 or Low_Price > low
+    Low_Price := low
+    bar_index_low_price := bar_index
+
+if High_Price == 0.0 or High_Price < high
+    High_Price := high
+    bar_index_high_price := bar_index
+
+// down trend to CALL start
+var float trailing_ll_point = 0.0
+trailing_ll_ok = false
+var float last_low = 0.0
+
+if bar_index_high_price > 0 and bar_index_low_price > 0 and bar_index_high_price < bar_index_low_price
+    if trailing_ll_point == 0.0 or trailing_ll_point != 0.0 and trailing_ll_point < High_Price - close
+        trailing_ll_point := High_Price - close
+
+    var float track_trailing_ll_point = 0
+
+    if trailing_ll_point > point_entry_call
+        track_trailing_ll_point := trailing_ll_point
+
+
+    var int barindex_ll = 0
+
+    if (track_trailing_ll_point > 0 and (High_Price - close) <= (track_trailing_ll_point - pull_back))
+        trailing_ll_point := 0.0
+        track_trailing_ll_point := 0.0
+        trailing_ll_ok := true
+
+
+        label label_ll = na
+        //label.delete(label_ll)
+        label_ll := label.new(x=interval2, y=Low_Price, text=str.format("{0} Bottom", Low_Price), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+        line.new(bar_index, Low_Price, bar_index+6, Low_Price,  style=line.style_solid, color=color.white, width = 4)
+        
+        High_Price := 0.0
+        
+// down trend to CALL end
+
+// up trend to PUT start
+var float trailing_hh_point = 0.0
+var float last_high = 0.0
+
+trailing_hh_ok = false
+
+if bar_index_high_price > 0 and bar_index_low_price > 0 and bar_index_high_price > bar_index_low_price
+    if trailing_hh_point == 0.0 or trailing_hh_point != 0.0 and trailing_hh_point < close - Low_Price
+        trailing_hh_point := close - Low_Price
+
+    var float track_trailing_hh_point = 0
+
+    if trailing_hh_point > point_entry_put
+        track_trailing_hh_point := trailing_hh_point
+
+
+    var int barindex_hh = 0
+    if (track_trailing_hh_point > 0 and (close - Low_Price) <= (track_trailing_hh_point - pull_back))
+        trailing_hh_point := 0.0
+        track_trailing_hh_point := 0.0
+        trailing_hh_ok := true
+
+
+        var label label_hh = na
+        //label.delete(label_hh)
+        label_hh := label.new(x=interval2, y=High_Price, text=str.format("{0} Top", High_Price), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+        line.new(bar_index, High_Price, bar_index+6, High_Price,  style=line.style_solid, color=color.blue, width = 4)
+        
+        Low_Price := 0.0
+        
+// up trend to PUT end
+
