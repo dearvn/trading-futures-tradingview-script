@@ -1,3 +1,12 @@
+# The $NQM2024 futures strategy is 70% accurate in a 5-minute timeframe
+
+Please access: 
+
+https://www.patreon.com/donaldit/shop/nqm2024-futures-trading-160775?utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=productshare_fan&utm_content=join_link
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/trailing-nq.png?raw=true "NQM2024")
+
+
 # $ES futures, $SPX strategy 80% accurate:
 
 Please access: 
