@@ -1,3 +1,8 @@
+
+Get options data to auto trading from: https://tradier.com/
+
+Api to integrate to Schwab: https://github.com/alexgolec/schwab-py
+
 # The $NQM2024 futures strategy is 70% accurate in a 5-minute timeframe
 
 Please access: 
