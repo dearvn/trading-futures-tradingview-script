@@ -1,3 +1,4 @@
+A new indicator to predict signal: https://www.patreon.com/donaldit/shop/simple-indicator-for-tracking-trading-on-231800?source=storefront
 
 Get options data to auto trading from: https://tradier.com/
 
