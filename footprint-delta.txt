@@ -1,0 +1,287 @@
+//@version=5
+FV = format.volume,FP = format.percent
+indicator(title="Footprint Delta Lite",format=FV, max_bars_back=5000, max_labels_count=500)
+
+//@type Calculation_data data for calculating
+//@field detail_open array open from calculation timeframe
+//@field detail_high array high from calculation timeframe
+//@field detail_low array low from calculation timeframe
+//@field detail_close array close from calculation timeframe
+//@field detail_vol array volume from calculation timeframe
+//@field previos_detail_close array close[1] from calculation timeframe
+//@field isBuyVolume attribute previosly bar buy or sell
+type Calculation_data
+    float [] detail_open
+    float [] detail_high
+    float [] detail_low
+    float [] detail_close
+    float [] detail_vol
+    float [] previos_detail_close
+    bool isBuyVolume
+    
+//@type Footprint_row objects one footprint row
+//@field price row price 
+//@field buy_vol buy volume
+//@field sell_vol sell volume
+//@field imbalance_buy attribute buy inbalance
+//@field imbalance_sell attribute sell imbalance
+//@field buy_vol_box for ptinting buy volume
+//@field sell_vol_box for printing sell volume
+//@field buy_vp_box for ptinting volume profile buy 
+//@field sell_vp_box for ptinting volume profile sell 
+//@field row_line for ptinting row price
+//@field empty = true attribute row with zero volume buy and zero volume sell
+type Footprint_row
+    float price
+    float buy_vol = 0.
+    float sell_vol = 0.
+    box buy_vol_box
+    box sell_vol_box
+    //vp
+    box buy_vp_box
+    box sell_vp_box
+
+    label row_line
+
+    bool empty = true
+
+//@type Footprint_info_var_object var objects for info printing
+//@field cum_delta var delta volume
+//@field cum_total var total volume
+//@field cum_buy_vol var buy volume
+//@field cum_sell_vol var sell volume
+//@field cum_info table for ptinting 
+type Footprint_info_var_object
+    float cum_delta = 0.
+    float cum_total = 0.
+    float cum_buy_vol = 0.
+    float cum_sell_vol = 0.
+    table cum_info
+//@type Footprint_info objects for info printing
+//@field var_info var objects this type 
+//@field total total volume
+//@field delta delta volume
+type Footprint_info
+    Footprint_info_var_object var_info
+    label total
+    label delta
+
+//@type Footprint_bar all objects one bar with footprint
+//@field foot_rows objects one row footprint
+//@field imba_line objects imbalance line
+//@field info objects info - table,label and their variable
+//@field row_size size rows
+//@field total_vol total volume one footprint bar
+//@field foot_buy_vol buy volume one footprint bar
+//@field foot_sell_vol sell volume one footprint bar
+//@field foot_max_price_vol map with one value - price row with max volume buy + sell
+//@field calc_data objects with detail data from calculation resolution
+type Footprint_bar
+    Footprint_row [] foot_rows
+    Footprint_info info
+    float row_size
+    float total_vol = 0.
+    float foot_buy_vol = 0.
+    float foot_sell_vol = 0.
+    map <float,float> foot_max_price_vol
+    Calculation_data calc_data
+
+//@function fil price rows
+//@param foot_bar instance of Footprint_bar type
+//@returns Void
+method fil_price_rows(Footprint_bar foot_bar)=>
+    row_size = foot_bar.row_size
+    start = math.floor(low/row_size)
+    for i = start * row_size to high by row_size
+        if foot_bar.foot_rows.size() <250
+            foot_bar.foot_rows.push(Footprint_row.new(price = i))
+        else
+            runtime.error("Level group size more than max value = 250. Pleace increase row size")
+
+method update_sum_foot_bar_var(Footprint_bar foot_bar,Footprint_row current_row)=>
+    foot_bar.foot_buy_vol += current_row.buy_vol
+    foot_bar.foot_sell_vol += current_row.sell_vol
+    foot_bar.total_vol := foot_bar.foot_buy_vol + foot_bar.foot_sell_vol
+    if current_row.buy_vol != 0. or current_row.sell_vol != 0
+        current_row.empty := false
+    if foot_bar.foot_max_price_vol.values().size() > 0
+        if foot_bar.foot_max_price_vol.values().last() <= current_row.buy_vol + current_row.sell_vol
+            foot_bar.foot_max_price_vol.clear()
+            foot_bar.foot_max_price_vol.put(current_row.price,current_row.buy_vol + current_row.sell_vol)
+    else 
+        foot_bar.foot_max_price_vol.put(current_row.price,current_row.buy_vol + current_row.sell_vol)
+
+method fill_buy_sell_vol(Footprint_row current_row,Footprint_bar foot_bar,float clean_volume,float local_open,float local_close,float local_close_prev)=>
+    switch
+        local_close > local_open => foot_bar.calc_data.isBuyVolume := true
+        local_close < local_open => foot_bar.calc_data.isBuyVolume := false
+        local_close > local_close_prev => foot_bar.calc_data.isBuyVolume := true
+        local_close < local_close_prev => foot_bar.calc_data.isBuyVolume := false
+    if foot_bar.calc_data.isBuyVolume
+        current_row.buy_vol += clean_volume
+    else
+        current_row.sell_vol += clean_volume
+
+method get_clean_volume(float local_volume,float local_high,float local_low,float price,float next_price)=>
+    bar_length = (local_high - local_low)
+    top_level = ((next_price > local_high) and (price > local_low)) ? local_high : next_price
+    bot_level = price < local_low and next_price <= local_high ? local_low : price 
+    level_space =  top_level - bot_level
+    bar_length := local_high == local_low ? 1 : bar_length
+    level_space := (top_level == bot_level == price) or (top_level == bot_level ==next_price) ? 0 : level_space
+    _proc = level_space > bar_length or bar_length == 1 and level_space != 0 ? 1 :  (level_space / bar_length)
+    volume_procent = local_volume * _proc
+    math.abs(volume_procent)
+
+method distribution_volume(Footprint_row current_row,Footprint_bar foot_bar)=>
+    price = current_row.price
+    next_price = price + foot_bar.row_size 
+    for [index,local_close] in foot_bar.calc_data.detail_close
+        local_open = foot_bar.calc_data.detail_open.get(index)
+        local_high = foot_bar.calc_data.detail_high.get(index)
+        local_low = foot_bar.calc_data.detail_low.get(index)
+        local_volume = foot_bar.calc_data.detail_vol.get(index)
+        local_close_prev = not na(foot_bar.calc_data.previos_detail_close) ? foot_bar.calc_data.previos_detail_close.last() : na 
+        condition = (price >= local_low and price <= local_high) or (next_price >= local_low and next_price <= local_high) or (next_price >= local_high and price <= local_low)
+        if condition
+            clean_volume = local_volume.get_clean_volume(local_high,local_low,price,next_price)
+            current_row.fill_buy_sell_vol(foot_bar,clean_volume,local_open,local_close,local_close_prev)
+    foot_bar.update_sum_foot_bar_var(current_row)
+
+//@function fill footprint bar
+//@param foot_bar instance of Footprint_bar type
+//@param sup instance of Support_objects type
+//@returns Void
+method fill_footprint_type(Footprint_bar foot_bar)=>
+    count_rows = foot_bar.foot_rows.size()
+    //not_empty_row_index = array.new<int>()
+    if count_rows >20
+        one = math.floor(count_rows/4)
+        two  = math.floor(count_rows/4)*2
+        three = math.floor(count_rows/4)*3
+        four = count_rows-1
+        for index_row = 0 to one
+            current_row = foot_bar.foot_rows.get(index_row)
+            current_row.distribution_volume(foot_bar)
+        for index_row = one + 1 to two      
+            current_row = foot_bar.foot_rows.get(index_row)
+            current_row.distribution_volume(foot_bar)
+        for index_row = two + 1 to three
+            current_row = foot_bar.foot_rows.get(index_row)
+            current_row.distribution_volume(foot_bar)
+        for index_row = three + 1 to four
+            current_row = foot_bar.foot_rows.get(index_row)
+            current_row.distribution_volume(foot_bar)
+    else
+        for [index_row,current_row] in foot_bar.foot_rows
+            current_row.distribution_volume(foot_bar)
+            
+//@function fill all footprint objects
+//@param foot_bar instance of Footprint_bar type
+//@param sup instance of Support_objects type
+//@returns Void
+method fill_footprint_object(Footprint_bar foot_bar)=>
+    foot_bar.fil_price_rows()
+    foot_bar.fill_footprint_type()
+
+method print_table(Footprint_bar foot_bar)=>
+    total_vol = foot_bar.total_vol
+    delta_vol = foot_bar.foot_buy_vol - foot_bar.foot_sell_vol
+    
+    buy_total_proc_v = foot_bar.foot_buy_vol/total_vol*100
+    sell_total_proc_v = foot_bar.foot_sell_vol/total_vol*100
+
+    buy_sell_proc = foot_bar.foot_sell_vol == 0. ? "-" : str.tostring(foot_bar.foot_buy_vol/foot_bar.foot_sell_vol*100,format = format.percent)
+    buy_total_proc = total_vol == 0. ? "-" : str.tostring(foot_bar.foot_buy_vol/total_vol*100,format = format.percent)
+    sell_total_proc = total_vol == 0. ? "-" : str.tostring(foot_bar.foot_sell_vol/total_vol*100,format = format.percent)
+    total_change =  na(total_vol[1])  ? "-" : str.tostring(total_vol/total_vol[1]*100,format = format.percent)
+    delta_total_proc = total_vol == 0. ? "-" : str.tostring(delta_vol/total_vol*100,format = format.percent)
+    delta_change = na(delta_vol[1])  ? "-" : str.tostring(delta_vol/delta_vol[1]*100,format = format.percent)
+
+    delta_vol10M = request.security(symbol=syminfo.tickerid, timeframe="10", expression=delta_vol, lookahead=barmerge.lookahead_on)
+
+    ema21 = ta.ema(close, 21)
+
+    ema21_10m = request.security(symbol=syminfo.tickerid, timeframe="10", expression=ema21, lookahead=barmerge.lookahead_on)
+    
+    if barstate.islast
+        var table tb = table.new(position.bottom_right, 5, 5, bgcolor = na, frame_width = 2, frame_color = chart.fg_color,border_width = 1, border_color = chart.fg_color)
+    
+        tb.cell( 0, 1, text = "TF",text_color = #000000, bgcolor = #ABB9C9, text_halign = text.align_center, text_valign = text.align_center,text_size = size.normal)
+        tb.cell( 1, 1, text = "EMA21",text_color = #000000, bgcolor = #ABB9C9, text_halign = text.align_center, text_valign = text.align_center,text_size = size.normal)
+        tb.cell( 2, 1, text = "Delta",text_color = #000000, bgcolor = #ABB9C9, text_halign = text.align_center, text_valign = text.align_center,text_size = size.normal)
+        tb.cell( 3, 1, text = "Presure",text_color = #000000, bgcolor = #ABB9C9, text_halign = text.align_center, text_valign = text.align_center,text_size = size.normal)
+        tb.cell( 4, 1, text = "Vol",text_color = #000000, bgcolor = #ABB9C9, text_halign = text.align_center, text_valign = text.align_center,text_size = size.normal)
+
+        tb.cell( 0, 2, text = "10M",text_color = #000000, bgcolor = #FFFFFF, text_halign = text.align_center, text_valign = text.align_center,text_size = size.normal)
+        tb.cell( 1, 2, text = ema21_10m <= close ? 'Above' : 'Below',text_color = #000000, bgcolor = #FFFFFF, text_halign = text.align_center, text_valign = text.align_center,text_size = size.normal)
+        tb.cell( 2, 2, text = str.tostring(delta_vol,format = format.volume),text_color = #000000, bgcolor =delta_vol > 0 ? #035D29 : #DC0C02, text_halign = text.align_center, text_valign = text.align_center,text_size = size.normal)
+        tb.cell( 3, 2, text = delta_vol > 0 ? str.tostring(foot_bar.foot_buy_vol,format = format.volume) + " | "+ str.tostring(foot_bar.foot_buy_vol/total_vol*100,format = format.percent) : str.tostring(foot_bar.foot_sell_vol,format = format.volume) + " | "+ str.tostring(foot_bar.foot_sell_vol/total_vol*100,format = format.percent),text_color = #000000, bgcolor = delta_vol > 0 ? #035D29 : #DC0C02, text_halign = text.align_center, text_size = size.normal)
+        tb.cell( 4, 2, text = str.tostring(total_vol,format = format.volume),text_color = #000000, bgcolor = #FFFFFF, text_halign = text.align_center, text_size = size.normal)
+
+
+//@function printing all footprint objects
+//@param foot_bar instance of Footprint_bar type
+//@returns Void.
+method print_droving(Footprint_bar foot_bar)=> 
+    row_size = foot_bar.row_size
+
+    foot_bar.print_table()
+    
+var show_bar = input.int(5,"Count show bars",minval =1,maxval = 50,inline = "1",group = "Display")
+all_show_bar = input.bool(false,"Display all available bars",inline = "1",group = "Display",tooltip = "Number of bars from rt bar to history for calculate,a certain amount or all")
+tick_per_row = input.int(40,"Ticks Per Row",minval =0,inline = "2",group = "Row size")
+auto_tick_per_row = input.bool(true,"Auto",inline = "2",group = "Row size")
+max_label_in_row = input.int(7,"Max row",inline = "2",minval =1,maxval = 100,group = "Row size",tooltip = 'Sets the price step, calculated by multiplying the entered value by syminfo.mintick, or auto mod - sets the acceptable number of rows within a bar. The automatic "Ticks Per Row" calculation is based on the first available bar and applied to subsequent bars.')
+
+
+get_auto_tick_per_row()=>
+    temp_tick_per_row =1
+    temp_row_size = temp_tick_per_row * syminfo.mintick
+    while low + max_label_in_row*temp_row_size <= high
+        temp_tick_per_row +=1
+        temp_row_size:=temp_tick_per_row * syminfo.mintick
+    temp_row_size
+
+[detail_open, detail_high, detail_low, detail_close, detail_vol] = request.security_lower_tf("","1S",[open,high,low,close,volume])
+previos_detail_close = detail_close[1]
+var isBuyVolume = true
+
+na_cond = not na(previos_detail_close) and not na(detail_close)
+size_cond = na_cond ? detail_close.size() != 0 and previos_detail_close.size() == 0 :false
+show_bar:= all_show_bar ? na_cond ? size_cond ? last_bar_index - bar_index : show_bar : show_bar : show_bar
+show_cond = (bar_index > last_bar_index - show_bar)
+bar_index_show_condition = show_cond and na_cond ? true : false
+
+//Calculation row_size
+var row_size = tick_per_row * syminfo.mintick
+if auto_tick_per_row
+    if bar_index == (last_bar_index - show_bar+1) and not na(previos_detail_close)
+        if previos_detail_close.size() != 0
+            row_size := get_auto_tick_per_row()
+
+
+
+foot_bar = Footprint_bar.new(
+     foot_rows = array.new<Footprint_row>(),
+     //info = Footprint_info.new(var_info = var_info),
+     row_size = row_size,
+     calc_data = Calculation_data.new(
+         detail_open = detail_open, 
+         detail_high = detail_high, 
+         detail_low = detail_low, 
+         detail_close = detail_close, 
+         detail_vol = detail_vol,
+         previos_detail_close = previos_detail_close,
+         isBuyVolume = isBuyVolume
+         ),
+     foot_max_price_vol = map.new<float,float>()
+     )
+
+start_print(Footprint_bar foot_bar)=>
+    if bar_index_show_condition
+        foot_bar.fill_footprint_object()
+        foot_bar.print_droving()
+
+// start process
+start_print(foot_bar)
