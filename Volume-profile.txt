@@ -1,0 +1,264 @@
+//@version=5
+indicator("Volume profile", overlay=true, max_boxes_count=500, max_bars_back=1000)
+
+//Inputs
+//==========================
+sessionType = input.string('Daily', 'Session Type', options=['Daily','Weekly'])
+showPoc = input.bool(true, 'Show POC', group='Display')
+showVA = input.bool(true, 'Show VAH and VAL', group='Display')
+resolution = input.int(30, 'Resolution', minval=5, tooltip='The higher the value, the more refined of a profile, but less profiles shown on chart', group='Volume Profile Settings')
+VAwid = input.int(70, 'Value Area Volume %', minval=1, maxval=100, group='Volume Profile Settings')
+volType = input.string('Volume', 'Profile Data Type', group='Volume Profile Settings')
+smoothVol = input.bool(false, 'Smooth Volume Data', tooltip='Useful for assets that have very large spikes in volume over large bars - helps create better profiles', group='Volume Profile Settings')
+dataTf = ''
+
+pocCol = input.color(color.red, 'POC', inline='p', group='Appearance')
+pocWid = input.int(1, 'Thickness', inline='p', group='Appearance')
+vahCol = input.color(color.aqua, 'VAH', inline='h', group='Appearance')
+vahWid = input.int(1, 'Thickness', inline='h', group='Appearance')
+valCol = input.color(color.aqua, 'VAL', inline='l', group='Appearance')
+valWid = input.int(1, 'Thickness', inline='l', group='Appearance')
+
+//==========================
+//Constants / Variable Declaration
+//========================== 
+var int zoneStart = 0
+var int tokyoStart = 0
+var int londonStart = 0
+var int nyStart = 0
+int lookback = bar_index - zoneStart
+var activeZone = false
+
+// Defining arrays that store the information
+var vpGreen = array.new_float(resolution, 0) // Sum of volume on long bars
+var vpRed = array.new_float(resolution, 0) // Same thing but with red bars
+var zoneBounds = array.new_float(resolution, 0) // array that stores the highest value that can be in a zone
+
+//Values to store current intra bar data
+var float[] ltfOpen =  array.new_float(0)
+var float[] ltfClose =  array.new_float(0)
+var float[] ltfHigh =  array.new_float(0)
+var float[] ltfLow =  array.new_float(0)
+var float[] ltfVolume = array.new_float(0)
+
+//Getting OI Data
+string userSymbol = syminfo.prefix + ":" + syminfo.ticker
+string openInterestTicker = str.format("{0}_OI", userSymbol)
+string timeframe = syminfo.type == "futures" and timeframe.isintraday ? "1D" : timeframe.period
+deltaOi = request.security(openInterestTicker, timeframe, close-close[1], ignore_invalid_symbol = true)
+
+//Selecting what vol type to use
+vol() =>
+    out = smoothVol ? ta.ema(volume, 5) : volume
+    if volType == 'Open Interest'
+        out := deltaOi
+    out
+
+//Getting intrabar intial data
+[dO, dC, dH, dL, dV] = request.security_lower_tf(syminfo.tickerid, dataTf, [open, close, high, low, vol()])
+
+//==========================
+//Functions
+//==========================
+resetProfile(enable) =>
+    if enable
+        array.fill(vpGreen, 0)
+        array.fill(vpRed, 0)
+        array.clear(ltfOpen)
+        array.clear(ltfHigh)
+        array.clear(ltfLow)
+        array.clear(ltfClose)
+        array.clear(ltfVolume)
+
+profHigh = ta.highest(high, lookback+1)[1]
+profLow = ta.lowest(low, lookback+1)[1]
+
+tr = ta.atr(1)
+atr = ta.atr(14)
+
+get_vol(y11, y12, y21, y22, height, vol) =>
+    nz(math.max(math.min(math.max(y11, y12), math.max(y21, y22)) - math.max(math.min(y11, y12), math.min(y21, y22)), 0) * vol / height)
+
+profileAdd(o, h, l, c, v, g, w) =>
+    //Array to store how much to distribute in each zone, on scale of 1 for full gap size to 0
+    zoneDist = array.new_float(resolution, 0)
+    distSum = 0.0
+    // Going over each zone
+    for i = 0 to array.size(vpGreen) - 1
+        // Checking to see if cur bar is in zone
+        zoneTop = array.get(zoneBounds, i)
+        zoneBot = zoneTop - g
+
+        body_top = math.max(c, o)
+        body_bot = math.min(c, o)
+        itsgreen = c >= o
+
+        topwick = h - body_top
+        bottomwick = body_bot - l
+        body = body_top - body_bot
+
+        bodyvol = body * v / (2 * topwick + 2 * bottomwick + body)
+        topwickvol = 2 * topwick * v / (2 * topwick + 2 * bottomwick + body)
+        bottomwickvol = 2 * bottomwick * v / (2 * topwick + 2 * bottomwick + body)
+
+        if volType == 'Volume'
+            array.set(vpGreen, i, array.get(vpGreen, i) + (itsgreen ? get_vol(zoneBot, zoneTop, body_bot, body_top, body, bodyvol) : 0) + get_vol(zoneBot, zoneTop, body_top, h, topwick, topwickvol) / 2 + get_vol(zoneBot, zoneTop, body_bot, l, bottomwick, bottomwickvol) / 2)
+            array.set(vpRed, i, array.get(vpRed, i) + (itsgreen ? 0 : get_vol(zoneBot, zoneTop, body_bot, body_top, body, bodyvol)) + get_vol(zoneBot, zoneTop, body_top, h, topwick, topwickvol) / 2 + get_vol(zoneBot, zoneTop, body_bot, l, bottomwick, bottomwickvol) / 2)
+
+calcSession(update) =>
+    array.fill(vpGreen, 0)
+    array.fill(vpRed, 0)
+    if bar_index > lookback and update
+        gap = (profHigh - profLow) / resolution
+
+        // Defining profile bounds
+        for i = 0 to resolution - 1
+            array.set(zoneBounds, i, profHigh - gap * i)
+
+        // Putting each bar inside zone into the volume profile array
+        if array.size(ltfOpen) > 0
+            for j = 0 to array.size(ltfOpen) - 1    
+                profileAdd(array.get(ltfOpen, j), array.get(ltfHigh, j), array.get(ltfLow, j), array.get(ltfClose, j), array.get(ltfVolume, j), gap, 1)
+
+pocLevel() =>
+    float maxVol = 0
+    int levelInd = 0
+    for i = 0 to array.size(vpRed) - 1
+        if array.get(vpRed, i) + array.get(vpGreen, i) > maxVol
+            maxVol := array.get(vpRed, i) + array.get(vpGreen, i)
+            levelInd := i
+    
+    float outLevel = na
+    if levelInd != array.size(vpRed) - 1
+        outLevel := array.get(zoneBounds, levelInd) - (array.get(zoneBounds, levelInd) - array.get(zoneBounds, levelInd+1)) / 2
+    outLevel
+
+valueLevels(poc) =>
+    float gap = (profHigh - profLow) / resolution
+    float volSum = array.sum(vpRed) + array.sum(vpGreen)
+    float volCnt = 0
+    
+    float vah = profHigh
+    float val = profLow
+
+    //Finding poc index
+    int pocInd = 0
+    for i = 0 to array.size(zoneBounds)-2
+        if array.get(zoneBounds, i) >= poc and array.get(zoneBounds, i + 1) < poc
+            pocInd := i
+    
+    volCnt += (array.get(vpRed, pocInd) + array.get(vpGreen, pocInd))
+    for i = 1 to array.size(vpRed)
+        if pocInd + i >= 0 and pocInd + i < array.size(vpRed)    
+            volCnt += (array.get(vpRed, pocInd + i) + array.get(vpGreen, pocInd + i))
+            if volCnt >= volSum * (VAwid/100)    
+                break 
+            else
+                val := array.get(zoneBounds, pocInd + i) - gap
+        if pocInd - i >= 0 and pocInd - i < array.size(vpRed)    
+            volCnt += (array.get(vpRed, pocInd - i) + array.get(vpGreen, pocInd - i))
+            if volCnt >= volSum * (VAwid/100)    
+                break 
+            else
+                vah := array.get(zoneBounds, pocInd - i)
+    [val, vah]
+
+drawCurZone(update, delete) =>
+    var line pocLine = na
+    var line vahLine = na
+    var line valLine = na
+    var label sessionLab = na
+
+    if bar_index > lookback and update and array.sum(vpGreen) + array.sum(vpRed) > 0
+        //Clearing the previous boxes and array
+        if not na(pocLine)
+            line.delete(pocLine)
+        if not na(vahLine)
+            line.delete(vahLine)
+        if not na(valLine)
+            line.delete(valLine)
+        if not na(sessionLab)
+            label.delete(sessionLab)
+       
+        gap = (profHigh - profLow) / resolution
+        float leftMax = bar_index[lookback]
+        float rightMax = bar_index[int(lookback / 1.4)]
+        float rightMaxVol = array.max(vpGreen)+array.max(vpRed)
+        float buffer = gap / 10
+
+        poc = pocLevel()
+        [val, vah] = valueLevels(poc)
+        if showPoc    
+            line.delete(pocLine)
+            pocLine := line.new(int(leftMax), poc, bar_index-1, poc, color=pocCol, width=pocWid)
+        if showVA
+            line.delete(vahLine)
+            line.delete(valLine)            
+            vahLine := line.new(int(leftMax), vah, bar_index-1, vah, color=vahCol, width=vahWid)
+            valLine := line.new(int(leftMax), val, bar_index-1, val, color=valCol, width=valWid)
+
+    if delete
+        line.delete(pocLine)
+        line.delete(vahLine)
+        line.delete(valLine)
+
+combArray(arr1, arr2) =>
+    out = array.copy(arr1)
+    if array.size(arr2) > 0
+        for i = 0 to array.size(arr2) - 1
+            array.push(out, array.get(arr2, i))   
+
+updateIntra(o, h, l, c, v) =>
+    if array.size(o) > 0
+        for i = 0 to array.size(o) - 1
+            array.push(ltfOpen, array.get(o, i))
+            array.push(ltfHigh,array.get(h, i)) 
+            array.push(ltfLow,array.get(l, i)) 
+            array.push(ltfClose,array.get(c, i)) 
+            array.push(ltfVolume,array.get(v, i))
+    
+//Calculations
+//Detecting different start dates
+newDaily = dayofweek != dayofweek[1]
+newWeekly = weekofyear != weekofyear[1]
+newMonthly = (dayofmonth != dayofmonth[1] + 1) and (dayofmonth != dayofmonth[1])
+
+utcHour = hour(time(timeframe.period, '0000-2400', 'GMT'), 'GMT')
+
+newSession = switch sessionType
+
+    'Daily' => newDaily
+    'Weekly' => newWeekly
+    => newDaily
+
+zoneEnd = switch sessionType
+    'Daily' => newDaily
+    'Weekly' => newWeekly
+    => newDaily
+
+//Re calculating and drawing zones
+calcSession(zoneEnd or (barstate.islast))
+// drawNewZone(zoneEnd)
+drawCurZone(barstate.islast and not zoneEnd and activeZone, zoneEnd)
+
+//Reseting profie at start of new zone
+resetProfile(newSession)
+
+//Updating data arrays
+updateIntra(dO, dH, dL, dC, dV)
+
+//Reseting zone start value
+if zoneEnd 
+    activeZone := false
+
+if newSession
+    zoneStart := bar_index
+    activeZone := true
+
+londonHigh = ta.highest(high, bar_index-londonStart+1)
+tokyoHigh = ta.highest(high, bar_index-tokyoStart+1)
+nyHigh = ta.highest(high, bar_index-nyStart+1)
+
+londonLow = ta.lowest(low, bar_index-londonStart+1)
+tokyoLow = ta.lowest(low, bar_index-tokyoStart+1)
+nyLow = ta.lowest(low, bar_index-nyStart+1)
