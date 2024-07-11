@@ -200,11 +200,11 @@ valueLevels(poc) =>
 
     [val, vah]
 
-drawNewZone(Box_bar box_bar, Line_bar line_bar, update) =>
+drawNewZone(Box_bar box_bar, Line_bar line_bar, update, able_add = false) =>
     float _vah = 0.0
     float _val = 0.0
     float _poc = 0.0
-    if bar_index > lookback and update and array.sum(vpGreen) + array.sum(vpRed) > 0
+    if bar_index > lookback and update and array.sum(vpGreen) + array.sum(vpRed) > 0 and able_add == true
         gap = (profHigh - profLow) / row
         float leftMax = bar_index[lookback]
         float rightMax = bar_index[int(lookback / 1.4)]
@@ -384,6 +384,24 @@ calcSession(zoneEnd or (barstate.islast and showCur))
 
 /////////////////////////////////////////////////////
 // Doan Modfied Start
+bar_day = dayofmonth(time_close)
+bar_month = month(time_close)
+bar_year = year(time_close)
+
+cur_day = dayofmonth(timenow)
+cur_month = month(timenow)
+cur_year = year(timenow)
+
+able_add = false
+
+if cur_year == bar_year and (bar_month == cur_month or (bar_month+1) == cur_month or (bar_month+2) == cur_month or cur_month == 1 and (bar_month == 12 or bar_month == 11)) and str.tostring(timeframe.period) != 'D'
+    able_add := true
+    
+
+// if cur_year == bar_year //and (bar_month == cur_month or (bar_month+1) == cur_month or (bar_month+2) == cur_month or (bar_month+3) == cur_month or cur_month == 1 and (bar_month == 12 or bar_month == 11 or bar_month == 10) or cur_month == 2 and (bar_month == 12 or bar_month == 11)) and str.tostring(timeframe.period) == 'D'
+//     //if bar_month == cur_month or (bar_month+1) == cur_month
+//     able_add := true
+
 var box_bar = Box_bar.new(
      box_rows = array.new<Box_row>()
      )
@@ -393,33 +411,38 @@ var line_bar = Line_bar.new(
      )
 
 // get value return poc, val, vah to alert
-[poc, val, vah] = drawNewZone(box_bar, line_bar, zoneEnd)
+[poc, val, vah] = drawNewZone(box_bar, line_bar, zoneEnd, able_add)
 
-if box_bar.box_rows.size() > (bar_show+1)
-    for [index,box_row] in box_bar.box_rows
-        if index > box_bar.box_rows.size() - (bar_show+1)
-            break
+// debug
+// if val != 0.0
+//     label.new(bar_index, val, str.format("{0} == {1} *** {2} == {3}", dayofmonth(time_close), dayofmonth(timenow), month(time_close), month(timenow)), color=color.rgb(0,0,0,100), textcolor=chart.fg_color)
 
-        g_boxs = box_row.g_box
+if able_add == true
+    if box_bar.box_rows.size() > (bar_show+1)
+        for [index,box_row] in box_bar.box_rows
+            if index > box_bar.box_rows.size() - (bar_show+1)
+                break
 
-        for [g_index,g_box_row] in g_boxs
-            box.delete(g_box_row)
+            g_boxs = box_row.g_box
 
-        r_boxs = box_row.r_box
+            for [g_index,g_box_row] in g_boxs
+                box.delete(g_box_row)
 
-        for [r_index,r_box_row] in r_boxs
-            box.delete(r_box_row)
+            r_boxs = box_row.r_box
+
+            for [r_index,r_box_row] in r_boxs
+                box.delete(r_box_row)
 
 
-if line_bar.line_rows.size() > (bar_show+1)
-    for [index,line_row] in line_bar.line_rows
-        if index > line_bar.line_rows.size() - (bar_show+1)
-            break
+    if line_bar.line_rows.size() > (bar_show+1)
+        for [index,line_row] in line_bar.line_rows
+            if index > line_bar.line_rows.size() - (bar_show+1)
+                break
 
-        l_lines = line_row.l_line
+            l_lines = line_row.l_line
 
-        for [l_index,l_line_row] in l_lines
-            line.delete(l_line_row)
+            for [l_index,l_line_row] in l_lines
+                line.delete(l_line_row)
 
 // Doan Modified End
 /////////////////////////////////////////////////////
@@ -444,3 +467,5 @@ if newSession
 londonHigh = ta.highest(high, bar_index-londonStart+1)
 tokyoHigh = ta.highest(high, bar_index-tokyoStart+1)
 nyHigh = ta.highest(high, bar_index-nyStart+1)
+
+
