@@ -5,8 +5,15 @@ type Box_row
     box [] g_box
     box [] r_box
 
+    
 type Box_bar
     Box_row [] box_rows
+
+type Line_row
+    line [] l_line
+
+type Line_bar
+    Line_row [] line_rows
 
 //==========================
 //Inputs
@@ -19,6 +26,9 @@ showPoc = input.bool(true, 'Show POC', group='Volume Profile Display')
 showVA = input.bool(true, 'Show VAH and VAL', group='Volume Profile Display')
 // showVAb = input.bool(false, 'Show Value Area Box', group='Display')
 showCur = input.bool(false, 'Show Live Volume', group='Volume Profile Display')
+
+bar_show = input.int(2, 'Number VP', minval=1, group='Volume Profile Settings')
+
 // showLabels = input.bool(true, 'Show Session Lables', group='Display')
 // showFx = input.bool(false, 'Show Forex Sessions (no profile)', group='Display')
 row = input.int(30, 'Row Size', minval=5, tooltip='The higher the value, the more refined of a profile, but less profiles shown on chart', group='Volume Profile Settings')
@@ -190,7 +200,7 @@ valueLevels(poc) =>
 
     [val, vah]
 
-drawNewZone(Box_bar box_bar, update) =>
+drawNewZone(Box_bar box_bar, Line_bar line_bar, update) =>
     float _vah = 0.0
     float _val = 0.0
     float _poc = 0.0
@@ -234,12 +244,20 @@ drawNewZone(Box_bar box_bar, update) =>
         [val, vah] = valueLevels(poc)
         _vah := vah
         _val := val
-        if showPoc
-            line.new(int(leftMax), poc, bar_index-1, poc, color=pocCol, width=pocWid)
-        if showVA
-            line.new(int(leftMax), vah, bar_index-1, vah, color=vahCol, width=vahWid)
-            line.new(int(leftMax), val, bar_index-1, val, color=valCol, width=1)
 
+        l_lines = array.new_line()
+        if showPoc
+            poc_line = line.new(int(leftMax), poc, bar_index-1, poc, color=pocCol, width=pocWid)
+            array.push(l_lines, poc_line)
+        if showVA
+            vah_line = line.new(int(leftMax), vah, bar_index-1, vah, color=vahCol, width=vahWid)
+            array.push(l_lines, vah_line)
+            val_line = line.new(int(leftMax), val, bar_index-1, val, color=valCol, width=1)
+            array.push(l_lines, val_line)
+        if l_lines.size() > 0
+            line_bar.line_rows.push(Line_row.new(l_lines))
+
+    // return value to alert
     [_poc, _val, _vah]
     //if update    
     //    resetProfile(true)
@@ -369,12 +387,17 @@ calcSession(zoneEnd or (barstate.islast and showCur))
 var box_bar = Box_bar.new(
      box_rows = array.new<Box_row>()
      )
-// get value return poc, val, vah to alert
-[poc, val, vah] = drawNewZone(box_bar, zoneEnd)
 
-if box_bar.box_rows.size() > 2
+var line_bar = Line_bar.new(
+     line_rows = array.new<Line_row>()
+     )
+
+// get value return poc, val, vah to alert
+[poc, val, vah] = drawNewZone(box_bar, line_bar, zoneEnd)
+
+if box_bar.box_rows.size() > (bar_show+1)
     for [index,box_row] in box_bar.box_rows
-        if index > box_bar.box_rows.size() - 2
+        if index > box_bar.box_rows.size() - (bar_show+1)
             break
 
         g_boxs = box_row.g_box
@@ -386,6 +409,17 @@ if box_bar.box_rows.size() > 2
 
         for [r_index,r_box_row] in r_boxs
             box.delete(r_box_row)
+
+
+if line_bar.line_rows.size() > (bar_show+1)
+    for [index,line_row] in line_bar.line_rows
+        if index > line_bar.line_rows.size() - (bar_show+1)
+            break
+
+        l_lines = line_row.l_line
+
+        for [l_index,l_line_row] in l_lines
+            line.delete(l_line_row)
 
 // Doan Modified End
 /////////////////////////////////////////////////////
