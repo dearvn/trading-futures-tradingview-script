@@ -12,8 +12,16 @@ type Box_bar
 type Line_row
     line [] l_line
 
+type Pv_row
+    float poc
+    float val
+    float vah
+
+
 type Line_bar
     Line_row [] line_rows
+    Pv_row [] pv_rows
+
 
 //==========================
 //Inputs
@@ -240,11 +248,8 @@ drawNewZone(Box_bar box_bar, Line_bar line_bar, update, able_add = false) =>
 
         // box.new(int(leftMax), profHigh, bar_index-1, profLow, chart.fg_color, boxWid, line.style_dashed, bgcolor=boxBg)
         poc = pocLevel()
-        _poc := poc
         [val, vah] = valueLevels(poc)
-        _vah := vah
-        _val := val
-
+        
         l_lines = array.new_line()
         if showPoc
             poc_line = line.new(int(leftMax), poc, bar_index-1, poc, color=pocCol, width=pocWid)
@@ -257,8 +262,8 @@ drawNewZone(Box_bar box_bar, Line_bar line_bar, update, able_add = false) =>
         if l_lines.size() > 0
             line_bar.line_rows.push(Line_row.new(l_lines))
 
-    // return value to alert
-    [_poc, _val, _vah]
+            line_bar.pv_rows.push(Pv_row.new(poc, val, vah))
+
     //if update    
     //    resetProfile(true)
 
@@ -407,16 +412,22 @@ var box_bar = Box_bar.new(
      )
 
 var line_bar = Line_bar.new(
-     line_rows = array.new<Line_row>()
+     line_rows = array.new<Line_row>(),
+     pv_rows = array.new<Pv_row>()
      )
 
 // get value return poc, val, vah to alert
-[poc, val, vah] = drawNewZone(box_bar, line_bar, zoneEnd, able_add)
+drawNewZone(box_bar, line_bar, zoneEnd, able_add)
+
+//[poc, val, vah] = 
 
 // debug
 // if val != 0.0
 //     label.new(bar_index, val, str.format("{0} == {1} *** {2} == {3}", dayofmonth(time_close), dayofmonth(timenow), month(time_close), month(timenow)), color=color.rgb(0,0,0,100), textcolor=chart.fg_color)
 
+poc = 0.0
+val = 0.0
+vah = 0.0
 if able_add == true
     if box_bar.box_rows.size() > (bar_show+1)
         for [index,box_row] in box_bar.box_rows
@@ -444,6 +455,11 @@ if able_add == true
             for [l_index,l_line_row] in l_lines
                 line.delete(l_line_row)
 
+    if line_bar.pv_rows.size() > 1
+        Pv_row pv = array.get(line_bar.pv_rows, array.size(line_bar.pv_rows)-1)
+        poc := pv.poc
+        val := pv.val
+        vah := pv.vah
 // Doan Modified End
 /////////////////////////////////////////////////////
 
@@ -468,4 +484,9 @@ londonHigh = ta.highest(high, bar_index-londonStart+1)
 tokyoHigh = ta.highest(high, bar_index-tokyoStart+1)
 nyHigh = ta.highest(high, bar_index-nyStart+1)
 
+//if bar_index > lookback and zoneEnd and array.sum(vpGreen) + array.sum(vpRed) > 0 //and able_add == true
 
+// debug 
+if barstate.islast
+    label.new(bar_index, low, text=str.format("POC: {0} \n VAL: {1} \nVAH: {2}", poc, val, vah), textcolor = color.white)
+    
