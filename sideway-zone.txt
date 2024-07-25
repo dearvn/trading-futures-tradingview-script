@@ -5,10 +5,10 @@ import jdehorty/KernelFunctions/2 as kernels
 
 // ~~~~~~~~~~~ CALCULATIONS ~~~~~~~~~~~ //
 //Kernal Zones
-zoneLengths = input.int(50, "Zone Inside Length", group="Momentum", tooltip="The Zone Inside is the Inner zone of the High and Low. This is the length used to create it.")
-zoneOutsideLengths = input.int(75, "Zone Outside Length", group="Momentum", tooltip="The Zone Outside is the Outer zone of the High and Low. This is the length used to create it.")
+zoneLengths = input.int(3, "Zone Inside Length", group="Momentum", tooltip="The Zone Inside is the Inner zone of the High and Low. This is the length used to create it.")
+zoneOutsideLengths = input.int(3, "Zone Outside Length", group="Momentum", tooltip="The Zone Outside is the Outer zone of the High and Low. This is the length used to create it.")
 // Kernel Settings
-lookbackWindow = input.int(18, "Lookback Window", tooltip="The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50", group="Kernel Settings")
+lookbackWindow = input.int(3, "Lookback Window", tooltip="The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50", group="Kernel Settings")
 relativeWeighting = input.float(8., "Relative Weighting", step=0.25, tooltip="Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25", group="Kernel Settings")
 startBar = input.int(25, "Start Regression at Bar", tooltip="Bar index on which to start regression. The first bars of a chart are often highly volatile, and omission of these initial bars often leads to a better overall fit. Recommended range: 5-25", group="Kernel Settings")
 
