@@ -1,0 +1,106 @@
+//@version=5
+indicator('Sideway Zones Live', overlay=true, max_bars_back=1100)
+
+import jdehorty/KernelFunctions/2 as kernels
+
+// ~~~~~~~~~~~ CALCULATIONS ~~~~~~~~~~~ //
+//Kernal Zones
+zoneLengths = input.int(50, "Zone Inside Length", group="Momentum", tooltip="The Zone Inside is the Inner zone of the High and Low. This is the length used to create it.")
+zoneOutsideLengths = input.int(75, "Zone Outside Length", group="Momentum", tooltip="The Zone Outside is the Outer zone of the High and Low. This is the length used to create it.")
+// Kernel Settings
+lookbackWindow = input.int(18, "Lookback Window", tooltip="The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50", group="Kernel Settings")
+relativeWeighting = input.float(8., "Relative Weighting", step=0.25, tooltip="Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25", group="Kernel Settings")
+startBar = input.int(25, "Start Regression at Bar", tooltip="Bar index on which to start regression. The first bars of a chart are often highly volatile, and omission of these initial bars often leads to a better overall fit. Recommended range: 5-25", group="Kernel Settings")
+
+highestHigh = kernels.rationalQuadratic(ta.highest(high, zoneLengths), lookbackWindow, relativeWeighting, startBar)
+lowestLow = kernels.rationalQuadratic(ta.lowest(low, zoneLengths), lookbackWindow, relativeWeighting, startBar)
+highestHighOutside = kernels.rationalQuadratic(ta.highest(high, zoneOutsideLengths), lookbackWindow, relativeWeighting, startBar)
+lowestLowOutside = kernels.rationalQuadratic(ta.lowest(low, zoneOutsideLengths), lookbackWindow, relativeWeighting, startBar)
+
+prd = input.int(defval=9, title='Loopback Period', minval=2, maxval=50)
+conslen = input.int(defval=3, title='Min Consolidation Length', minval=2, maxval=20)
+
+float hb_ = ta.highestbars(prd) == 0 ? high : na
+float lb_ = ta.lowestbars(prd) == 0 ? low : na
+var int dir = 0
+float zz = na
+float pp = na
+
+iff_1 = lb_ and na(hb_) ? -1 : dir
+dir := hb_ and na(lb_) ? 1 : iff_1
+if hb_ and lb_
+    if dir == 1
+        zz := hb_
+        zz
+    else
+        zz := lb_
+        zz
+else
+    iff_1 = lb_ ? lb_ : na
+    zz := hb_ ? hb_ : iff_1
+    zz
+
+for x = 0 to 1000 by 1
+    if na(close) or dir != dir[x]
+        break
+    if zz[x]
+        if na(pp)
+            pp := zz[x]
+            pp
+        else
+            if dir[x] == 1 and zz[x] > pp
+                pp := zz[x]
+                pp
+            if dir[x] == -1 and zz[x] < pp
+                pp := zz[x]
+                pp
+
+var int conscnt = 0
+var float condhigh = na
+var float condlow = na
+float H_ = highestHighOutside
+float L_ = lowestLowOutside
+var line upline = na
+var line dnline = na
+bool breakoutup = false
+bool breakoutdown = false
+
+if ta.change(pp)
+    if conscnt > conslen
+        if pp > condhigh
+            breakoutup := true
+            breakoutup
+        if pp < condlow
+            breakoutdown := true
+            breakoutdown
+    if conscnt > 0 and pp <= condhigh and pp >= condlow
+        conscnt += 1
+        conscnt
+    else
+        conscnt := 0
+        conscnt
+else
+    conscnt += 1
+    conscnt
+
+if conscnt >= conslen
+    if conscnt == conslen
+        condhigh := H_
+        condlow := L_
+        condlow
+    else
+        
+        condhigh := math.max(condhigh, high)
+        condlow := math.min(condlow, low)
+        condlow
+
+    upline := line.new(bar_index, condhigh, bar_index - conscnt, condhigh, color=color.white, style=line.style_solid)
+    dnline := line.new(bar_index, condlow, bar_index - conscnt, condlow, color=color.white, style=line.style_solid)
+    line.delete(upline[1])
+    line.delete(dnline[1])
+
+    dnline
+
+alertcondition(breakoutup, title='Breakout Up', message='Breakout Up')
+alertcondition(breakoutdown, title='Breakout Down', message='Breakout Down')
+
