@@ -1,3 +1,9 @@
+# SPX trading options
+
+In this indicator, I detect the real-time TOP (blue line) and BOTTOM (white line) levels, as well as signals to CALL or PUT. The options move very quickly, so a bot is needed to trade automatically.
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/spx-options.png?raw=true "SPX-30M options")
+
 A new indicator to predict signal: https://www.patreon.com/donaldit/shop/simple-indicator-for-tracking-trading-on-231800?source=storefront
 
 Get options data to auto trading from: https://tradier.com/
