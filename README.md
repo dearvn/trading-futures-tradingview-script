@@ -1,3 +1,6 @@
+# Management Members on TradingView and Discord Channel via plugin
+https://www.patreon.com/donaldit/shop/manage-members-on-tradingview-discord-415211
+
 # SPX trading options
 
 In this indicator, I detect the real-time TOP (blue line) and BOTTOM (white line) levels, as well as signals to CALL or PUT. The options move very quickly, so a bot is needed to trade automatically.
