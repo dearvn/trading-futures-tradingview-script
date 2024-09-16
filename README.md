@@ -1,4 +1,4 @@
-# Management Members on TradingView and Discord Channel via plugin
+# Management members on TradingView and the Discord channel on your website.
 https://www.patreon.com/donaldit/shop/manage-members-on-tradingview-discord-415211
 
 # SPX trading options
