@@ -1,6 +1,11 @@
 # Management members on TradingView and the Discord channel on your website.
 https://www.patreon.com/donaldit/shop/manage-members-on-tradingview-discord-415211
 
+# NQ1M
+
+![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/NQ1m.png?raw=true "NQ1 1M")
+
+
 # SPX trading options
 
 In this indicator, I detect the real-time TOP (blue line) and BOTTOM (white line) levels, as well as signals to CALL or PUT. The options move very quickly, so a bot is needed to trade automatically.
