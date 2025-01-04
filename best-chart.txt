@@ -1,0 +1,573 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © donald
+
+
+//@version=6
+strategy("Best Chart - 1m Strategy Candle Bar", overlay=true)
+
+
+//minutes = input.int(45, title = "Max minutes to exit", minval = 0, maxval = 240)
+
+stopPer = input(10, title='Stop Loss %') / 100 
+takePer = input(10, title='Take Profit %') / 100
+sideway_pct = input.float(0.08, title = 'Sideway %') / 100
+
+//vwap start
+point_lb = 5
+point_rb = 5
+
+
+//plot(close)
+point_ph = ta.pivothigh(point_lb, point_rb)
+point_pl = ta.pivotlow(point_lb, point_rb)
+
+var float running_ph = na
+var float running_pl = na
+
+running_ph := running_ph
+running_pl := running_pl
+
+if na(point_ph)
+    running_ph := point_ph
+
+if na(point_pl)
+    running_pl := point_pl 
+
+plot(running_ph, title = 'R', style = plot.style_circles, linewidth = 1,color=color.red,  offset = -point_rb)
+plot(running_ph, title = 'R', style = plot.style_circles, linewidth = 1,color=color.red, offset = 0)
+
+plot(running_pl, title = 'S',  style = plot.style_circles, linewidth = 1,color=color.blue,offset = -point_rb)
+plot(running_pl, title = 'S',  style = plot.style_circles, linewidth = 1,color=color.blue, offset = 0)
+
+
+
+var bool is_strong_buy = false
+var bool is_strong_sell = false
+if na(running_ph) and ta.crossover(close, running_ph) and barstate.isconfirmed
+    is_strong_buy := true
+    is_strong_sell := false
+if na(running_pl) and ta.crossunder(close, running_ph) and barstate.isconfirmed
+    is_strong_buy := false
+if na(running_pl) and ta.crossunder(close, running_pl) and barstate.isconfirmed
+    is_strong_sell := true
+    is_strong_buy := false
+if na(running_pl) and ta.crossover(close, running_pl) and barstate.isconfirmed
+    is_strong_sell := false
+
+//vwap end
+
+// logic buy sell improve start
+src = close
+di = (6 - 1.0) / 2.0 + 1.0
+c1 = 2 / (di + 1.0)
+c2 = 1 - c1
+c3 = 3.0 * (0.4 * 0.4 + 0.4 * 0.4 * 0.4)
+c4 = -3.0 * (2.0 * 0.4 * 0.4 + 0.4 + 0.4 * 0.4 * 0.4)
+c5 = 3.0 * 0.4 + 1.0 + 0.4 * 0.4 * 0.4 + 3.0 * 0.4 * 0.4
+var float i1 = na
+var float i2 = na
+var float i3 = na
+var float i4 = na
+var float i5 = na
+var float i6 = na
+i1 := c1 * src + c2 * nz(i1[1])
+i2 := c1 * i1 + c2 * nz(i2[1])
+i3 := c1 * i2 + c2 * nz(i3[1])
+i4 := c1 * i3 + c2 * nz(i4[1])
+i5 := c1 * i4 + c2 * nz(i5[1])
+i6 := c1 * i5 + c2 * nz(i6[1])
+
+Cto = -0.4 * 0.4 * 0.4 * i6 + c3 * i5 + c4 * i4 + c5 * i3
+//bfrC = Cto > nz(Cto[1]) ? raise : Cto < nz(Cto[1]) ? fall : na
+//plot(Cto, title='Trend', linewidth=2, style=plot.style_line, color=color.new(color.red, 0), editable=false)
+ema3 = ta.ema(close, 3)
+//plot(ema3, title='EMA', linewidth=2, style=plot.style_line, color=color.new(color.white, 0))
+
+var bool is_cross_up = false
+var bool is_cross_down = false
+
+if ta.crossover(ema3, Cto) and barstate.isconfirmed
+    is_cross_up := true
+    is_cross_down := false
+if ta.crossunder(ema3, Cto) and barstate.isconfirmed
+    is_cross_down := true
+    is_cross_up := false
+
+//condition Long & Short
+long = (close > Cto and close[1] < Cto[1] and close > close[1] or close[1] > Cto[1] and close > close[1] and close [1] < close[2] and close > ema3) and barstate.isconfirmed ? true : false
+profit_long = close < close[1] and low < ema3 and close[1] > ema3[1] and close[2] > ema3[2] and barstate.isconfirmed
+//var int trend = 0
+    
+
+short = (close < Cto and close[1] > Cto[1] and close < close[1] or close[1] < Cto[1] and close < close[1] and close [1] > close[2] and close < ema3) and barstate.isconfirmed ? true : false
+profit_short = close > close[1] and high > ema3 and close[1] < ema3[1] and close[2] < ema3[2] and barstate.isconfirmed
+
+// logic buy sell improvate end
+
+rsi = ta.rsi(close, 3)
+
+longStop = strategy.position_avg_price * (1 - stopPer)
+shortStop = strategy.position_avg_price * (1 + stopPer)
+shortTake = strategy.position_avg_price * (1 - takePer)
+longTake = strategy.position_avg_price * (1 + takePer)
+
+//plot(VWAP, color=color.yellow)
+
+
+ema48 = ta.wma(close, 48)
+ema11 = ta.wma(close, 11)
+ema200 = ta.wma(close, 200)
+
+close10 = request.security(symbol=syminfo.tickerid, timeframe="12", expression=close, lookahead=barmerge.lookahead_on)
+
+wma10_11 = ta.wma(close, 4)
+wma_10_11 = request.security(symbol=syminfo.tickerid, timeframe="12", expression=wma10_11, lookahead=barmerge.lookahead_on)
+//plot(wma_10_11, 'ema10_11', color.blue) 
+
+wma10_48 = ta.wma(close, 9)
+wma_10_48 = request.security(symbol=syminfo.tickerid, timeframe="12", expression=wma10_48, lookahead=barmerge.lookahead_on)
+//plot(wma_10_48, 'ema10_48', color.yellow) 
+
+close8 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=close, lookahead=barmerge.lookahead_on)
+
+wma8_11 = ta.wma(close, 3)
+wma_8_11 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=wma8_11, lookahead=barmerge.lookahead_on)
+//plot(wma_10_11, 'ema10_11', color.blue) 
+
+wma8_48 = ta.wma(close, 8)
+wma_8_48 = request.security(symbol=syminfo.tickerid, timeframe="11", expression=wma8_48, lookahead=barmerge.lookahead_on)
+
+/////////////
+var bool cross_up_wma_10 = false
+var bool cross_down_wma_10 = false
+if ta.crossover(wma_10_11, wma_10_48) and barstate.isconfirmed
+    cross_up_wma_10 := true
+    cross_down_wma_10 := false
+if ta.crossunder(wma_10_11, wma_10_48) and barstate.isconfirmed
+    cross_up_wma_10 := false
+    cross_down_wma_10 := true
+
+up10m = false
+
+if close10 > wma_10_11
+    up10m := true
+
+down8m = false
+if close8 < wma_8_11
+    down8m := true
+
+////logic volume start
+x =  input.float(3.1, title="Factor For Breakout Candle")
+red   = #ff848a      //#ff848a // #FA8072 // #323433 // #ff848a
+green = #8cffe5      // #8cffe5 // #6DC066 // #80aebd // #8cffe5
+
+// Basic Volume Calcs //
+bull =  close>open?volume:0 
+bear =  open>close?volume:0
+
+
+// BEAR Moving Average Calculation
+bullma = ta.wma(bull, 14)
+
+// BEAR Moving Average Calculation //
+bearma = ta.wma(bear, 14)
+
+// ma dif //
+vf_dif = bullma-bearma
+
+// example
+
+
+vf_absolute = vf_dif > 0 ? vf_dif : vf_dif * (-1)
+
+// Volume Spikes //
+var bool gsig = false
+var bool rsig = false
+if ta.crossover(bull, bullma*x) and barstate.isconfirmed
+    gsig := true
+    rsig := false
+if ta.crossover(bear, bearma*x) and barstate.isconfirmed
+    rsig := true
+    gsig := false
+
+
+
+
+// Color Calcs //
+vdClr = vf_dif > 0 ? true : false
+vClr = close>open ? true:false
+
+
+////logic volume end
+
+// super trend start
+cci_period = 28
+cci = ta.cci(close, cci_period)
+ML = 0
+
+f_supertrend() =>
+
+    Up=hl2 - 3.0 * ta.atr(3)
+    Dn=hl2 + 3.0 * ta.atr(3)
+    
+    TrendUp = 0.0
+    TrendUp := cci[1] > ML ? math.max(Up,TrendUp[1]) : Up
+    TrendDown = 0.0
+    TrendDown := cci[1]< ML ? math.min(Dn,TrendDown[1]) : Dn
+    Trend = 0.0
+    Trend := cci > ML ? 1: cci < ML ? -1: nz(Trend[1],1)
+    Tsl = Trend==1? TrendUp: TrendDown
+
+    Tsl
+
+st_tsl = f_supertrend()
+
+buy= close >= st_tsl
+sell= close < st_tsl
+buy1= ta.barssince(buy)
+sell1 = ta.barssince(sell)
+
+buy_trend = buy1[1] > sell1[1] ? true : false
+
+buy2= ta.barssince(sell)
+sell2 = ta.barssince(buy)
+sell_trend = buy2[1] > sell2[1] ? true : false
+var bool is_buy = false
+var bool is_sell = false
+if sell_trend
+    is_sell := true
+    is_buy := false
+if buy_trend
+    is_sell := false
+    is_buy := true
+// super trend end
+
+// ema cross start
+
+oc = math.abs(open[1]-close[1])
+hl = math.abs(high[1]-low[1])
+ochl = (oc-hl)/hl
+ll = (low[1]-low[2])/low[2]
+crossUpWMA11 = ta.crossover(ema11, ema48) and barstate.isconfirmed
+crossDownWMA11 = ta.crossunder(ema11, ema48) and barstate.isconfirmed
+var bool crossup11_48 = false
+var bool crossdown11_48 = false
+var int cnt_out_up = 0
+if crossUpWMA11
+    crossup11_48 := true
+    crossdown11_48 := false
+    cnt_out_up := 0
+if crossDownWMA11
+    crossup11_48 := false
+    crossdown11_48 := true
+    cnt_out_up := 0
+is_br = open[2] < close[2] and open[1] < close[1] and close < open and close[2] < close[1] and close[1] > close and ochl < 0.3 and (low[3] < low[2] and low[2] < low[1])
+if is_br
+    cnt_out_up := cnt_out_up + 1
+
+is_out_up = false
+if cnt_out_up>2
+    is_out_up := true
+    cnt_out_up := 0
+
+// ema cross end 
+
+
+// trend strong start 
+wma13 = ta.wma(close, 13)
+plot(wma13, title="WMA13", color=color.blue)
+
+wma48 = ta.wma(close, 48)
+plot(wma48, title="WMA48", color=color.yellow)
+
+wma200 = ta.wma(close, 200)
+plot(wma200, title="WMA200", color=color.white)
+
+crossUpWMA13 = ta.crossover(close, wma13) and barstate.isconfirmed
+crossDownWMA13 = ta.crossunder(close, wma13) and barstate.isconfirmed
+crossUpWMA48 = ta.crossover(close, wma48) and barstate.isconfirmed
+crossDownWMA48 = ta.crossunder(close, wma48) and barstate.isconfirmed
+crossUpWMA200 = ta.crossover(close, wma200) and barstate.isconfirmed
+crossDownWMA200 = ta.crossunder(close, wma200) and barstate.isconfirmed
+
+crossUpWMA13_48 = ta.crossover(wma13, wma48) and barstate.isconfirmed
+crossDownWMA13_48 = ta.crossunder(wma13, wma48) and barstate.isconfirmed
+crossUpWMA48_200 = ta.crossover(wma48, wma200) and barstate.isconfirmed
+crossDownWMA48_200 = ta.crossunder(wma48, wma200) and barstate.isconfirmed
+
+var price_wmacrossup_arr = array.new_float()
+var price_wmacrossdown_arr = array.new_float()
+
+if crossUpWMA48_200
+    price_wmacrossdown_arr := array.new_float()
+    array.push(price_wmacrossup_arr, close)
+else if crossDownWMA48_200
+    price_wmacrossup_arr := array.new_float()
+    array.push(price_wmacrossdown_arr, close)
+        
+var bool isUpTrend = false
+var bool isDownTrend = false
+
+if crossUpWMA13 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+else if crossUpWMA48 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+else if crossUpWMA200 and isUpTrend == false
+    isUpTrend := true
+    isDownTrend := false
+
+if crossDownWMA13 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+else if crossDownWMA48 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+else if crossDownWMA200 and isDownTrend == false
+    isUpTrend := false
+    isDownTrend := true
+    
+var int trendUp = 0
+var int trendDown = 0
+
+if isUpTrend
+    if crossUpWMA13_48
+        trendUp := 1
+        trendDown := 0
+    if crossUpWMA48_200
+        trendUp := 2
+        trendDown := 0
+        
+if isDownTrend
+    if crossDownWMA13_48
+        trendUp := 0
+        trendDown := 1
+    if crossDownWMA48_200
+        trendUp := 0
+        trendDown := 2
+// trend strong end 
+
+
+// clone start
+periodMa = input.int(title='Delta Length', minval=1, defval=2)
+iff_1 = close[1] < open ? math.max(high - close[1], close - low) : math.max(high - open, close - low)
+iff_2 = close[1] > open ? high - low : math.max(open - close[1], high - low)
+iff_3 = close[1] < open ? math.max(high - close[1], close - low) : high - open
+iff_4 = close[1] > open ? high - low : math.max(open - close[1], high - low)
+iff_5 = close[1] < open ? math.max(open - close[1], high - low) : high - low
+iff_6 = close[1] > open ? math.max(high - open, close - low) : iff_5
+iff_7 = high - close < close - low ? iff_4 : iff_6
+iff_8 = high - close > close - low ? iff_3 : iff_7
+iff_9 = close > open ? iff_2 : iff_8
+bullPower = close < open ? iff_1 : iff_9
+iff_10 = close[1] > open ? math.max(close[1] - open, high - low) : high - low
+iff_11 = close[1] > open ? math.max(close[1] - low, high - close) : math.max(open - low, high - close)
+iff_12 = close[1] > open ? math.max(close[1] - open, high - low) : high - low
+iff_13 = close[1] > open ? math.max(close[1] - low, high - close) : open - low
+iff_14 = close[1] < open ? math.max(open - low, high - close) : high - low
+iff_15 = close[1] > open ? math.max(close[1] - open, high - low) : iff_14
+iff_16 = high - close < close - low ? iff_13 : iff_15
+iff_17 = high - close > close - low ? iff_12 : iff_16
+iff_18 = close > open ? iff_11 : iff_17
+bearPower = close < open ? iff_10 : iff_18
+
+bullVolume = bullPower / (bullPower + bearPower) * volume
+bearVolume = bearPower / (bullPower + bearPower) * volume
+
+delta = bullVolume - bearVolume
+cvd = ta.cum(delta)
+cvdMa = ta.ema(cvd, periodMa)
+
+deltagood = cvd > cvdMa
+deltabad = cvd < cvdMa
+
+// clone end 
+
+
+// sideway start
+
+low1d = request.security(symbol=syminfo.tickerid, timeframe="60", expression=low, lookahead=barmerge.lookahead_on)
+
+avg = (close[10] + close[9] + close[8] + close[7] + close[6] +close[5] + close[4] + close[3] + close[2] + close[1])/10
+keep_short = wma13 < wma48 and wma13 < avg and avg < wma48
+
+start_long = wma13 > wma48 and wma13 > avg and avg > wma48 and (ta.crossover(wma13, wma48) and close > wma13 and close > wma48 or close > wma13 and ta.crossover(close, wma48) or close > wma48 and ta.crossover(close, wma13) or close[1] > wma13 and ta.crossover(wma13[1], wma200[1]))
+keep_long = wma13 > wma48 and wma13 > avg and avg > wma48
+sideway = math.abs(close[1]-avg)/avg < sideway_pct
+
+
+// sideway end
+
+bottomsupport = na(running_pl) and close > running_pl and close > close[1] and rsi > rsi[1] + 8
+
+bigdrop = rsi + 8 < rsi[1] and close > ema48 and na(running_ph) and close < running_ph 
+
+is_cross_res = ta.crossover(close, running_ph) and close > wma13 and wma13 > wma48
+
+var bool is_long = false
+var bool is_short = false
+
+longCondition = (buy_trend and up10m and is_cross_res or up10m and buy_trend and (start_long or close*1.05 > wma13 and rsi > rsi[1] + 6 or rsi > rsi[1] + 8 and long or is_cross_up and bottomsupport and is_strong_buy or bottomsupport)) and barstate.isconfirmed
+
+
+not_close_long = up10m and not down8m
+is_lost = wma13[3] > wma13[2] and wma13[2] > wma13[1]
+if is_lost
+    longCondition := false
+
+var int cnt_time_long = 0
+
+if longCondition
+    is_long := true
+
+if is_long
+    cnt_time_long := cnt_time_long + 1
+    
+
+
+shortCondition = down8m and (close*0.94 < wma13 and rsi + 8 < rsi[1] or rsi + 8 < rsi[1] and short or is_br or bigdrop and is_strong_sell) and barstate.isconfirmed
+
+var int cnt_time_short = 0
+
+
+if shortCondition
+    is_short := true
+
+
+if is_short
+    cnt_time_short := cnt_time_short + 1
+
+    //label.new(bar_index, low, text="*"+str.format("{0}", cnt_time_short), textcolor=color.yellow, style=label.style_triangleup, size=size.tiny)
+    //shortCondition := false
+
+////////////
+
+var bool wma13_wma48_up = false
+var bool wma13_wma48_down = false
+
+
+if crossUpWMA13_48
+    wma13_wma48_down := false
+    wma13_wma48_up := true
+
+if crossDownWMA13_48
+    wma13_wma48_down := true
+    wma13_wma48_up := false
+
+if is_short and wma13_wma48_down or wma13 < wma48 and math.abs(wma13-wma48) < 0.008 or down8m
+    longCondition := false
+
+if is_long and wma13_wma48_up or wma13 > wma48 and math.abs(wma13-wma48) < 0.005 or wma13 < wma48 and wma13 < wma13[1]
+    shortCondition := false
+
+sideway_call = wma13 < wma48 and math.abs(wma13-wma48) < 0.005
+sideway_put = wma13 > wma48 and math.abs(wma13-wma48) < 0.008
+
+if up10m and down8m or sideway_call or sideway_put
+    longCondition := false
+    shortCondition := false
+
+///////////
+
+// close by macd start
+fast_length = 7
+slow_length = 20
+signal_length = 7
+// Calculating
+fast_ma = ta.wma(src, fast_length)
+slow_ma = ta.wma(src, slow_length)
+macd = fast_ma - slow_ma
+signal = ta.wma(macd, signal_length)
+hist = macd - signal
+is_cross_macd_short = ta.crossover(macd, signal) and macd < 0 and signal < 0
+
+plotshape(is_cross_macd_short ? low : na, title="Less", style=shape.diamond, location=location.absolute, color=color.yellow, size=size.tiny)
+
+//label.new(bar_index, low1d*0.999, text="*"+str.format("{0}", math.abs(wma13-wma48)), textcolor=color.yellow, style=label.style_triangleup, size=size.tiny)
+plotshape(sideway_call ?  low1d: na, title="No Long", style=shape.xcross, location=location.absolute, color=color.gray, size=size.tiny)
+plotshape(sideway_put ?  low1d: na, title="No Short", style=shape.xcross, location=location.absolute, color=color.white, size=size.tiny)
+
+
+
+plotshape(down8m ?  low1d*0.998: na, title="No Short", style=shape.xcross, location=location.absolute, color=color.yellow, size=size.tiny)
+plotshape(up10m ?  low1d*0.995: na, title="No Short", style=shape.xcross, location=location.absolute, color=color.blue, size=size.tiny)
+
+
+
+plotshape(up10m and is_cross_res?  low: na, title="Go Strong", style=shape.xcross, location=location.absolute, color=color.orange, size=size.tiny)
+
+// close by macd end
+
+
+// exit long when has a short signal and otherwise
+closelong = ((rsi > 70 ) and high[2] < high[1] and high[1] > high or down8m and (trendDown > 1 or profit_long or bigdrop and not is_cross_up or is_out_up ) or up10m[1] and not up10m) and barstate.isconfirmed
+
+
+
+if not keep_long and is_long and high[2]*1.001 >= running_ph and (high[1] < running_ph and close[1] < running_ph or high[2] > high[1] and high[1] > high)
+    closelong := true
+
+next_short = false
+if is_long and shortCondition
+    closelong := true 
+    shortCondition := false
+    next_short := true
+
+if next_short[1]
+    shortCondition := true
+
+//if minutes > 0 and cnt_time_long > minutes and ta.crossunder(close, wma13) and barstate.isconfirmed
+//    closelong := true
+
+
+if closelong
+    is_long := false
+    cnt_time_long := 0
+
+closeshort = (down8m and up10m and wma13 < wma48 and math.abs(wma13-wma48) > 0.01  or not down8m and (hist < 0 and hist > hist[1] or trendUp > 1 or profit_short or bottomsupport and not is_cross_down) or down8m[1] and not down8m) and barstate.isconfirmed
+
+next_long = false
+if is_short and longCondition
+    closeshort := true
+    next_long := true
+    longCondition := false
+
+if next_long[1]
+    longCondition := true
+
+//if is_short and low[2]*0.9999 <= running_pl and low[1] > running_pl and close[1] > running_pl and low[3] > low[2] and low[2] < low[1]
+//    closeshort := true
+//if closeshort[1] and not longCondition and close > wma13 and close > wma48
+//    longCondition := true
+
+h = hour(time_close, 'UTC-8')
+m = minute(time_close, 'UTC-8')
+
+hold_trade = h >= 0 and h < 6 or h == 6 and m <= 30
+
+if longCondition //and not hold_trade
+    strategy.entry("call", strategy.long) 
+
+// change param rsi + 4
+if shortCondition //and not hold_trade
+    strategy.entry("put", strategy.short)
+
+//if minutes > 0 and cnt_time_short > minutes and ta.crossover(close, wma13) and barstate.isconfirmed
+//    closeshort := true
+    
+if closeshort
+    is_short := false
+    cnt_time_short := 0
+   
+
+if(strategy.position_size > 0) and closelong and not not_close_long
+    strategy.close(id="call")
+if(strategy.position_size < 0) and closeshort
+    strategy.close(id="put")
+
+
+if(strategy.position_size > 0)
+    strategy.exit(id='call', limit=longTake,stop = longStop)
+if(strategy.position_size < 0)
+    strategy.exit(id='put', limit=shortTake,stop = shortStop)
