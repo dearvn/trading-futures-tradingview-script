@@ -1,0 +1,1693 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// @doan
+
+//@version=6
+indicator("SPX 30M - Trading Chart", shorttitle="SPX 30M - Trading Chart", overlay=true)
+max_bars_back(time, 5000)
+
+
+utc = "UTC-7"
+
+import jdehorty/KernelFunctions/2 as kernels
+
+/////////////////////////////////////////////////////////////
+// Detect sideway start
+
+highestHigh2 = kernels.rationalQuadratic(ta.highest(high, 3), 3, 8, 25)
+lowestLow2 = kernels.rationalQuadratic(ta.lowest(low, 3), 3, 8, 25)
+highestHighOutside2 = kernels.rationalQuadratic(ta.highest(high, 3), 3, 8, 25)
+lowestLowOutside2 = kernels.rationalQuadratic(ta.lowest(low, 3), 3, 8, 25)
+
+prd = input.int(defval=18, title='Loopback Period', minval=2, maxval=50)
+conslen = input.int(defval=12, title='Min Consolidation Length', minval=2, maxval=20)
+
+float hb2_ = ta.highestbars(prd) == 0 ? high : na
+float lb2_ = ta.lowestbars(prd) == 0 ? low : na
+var int dir = 0
+float zz = na
+float pp2 = na
+iff_1 = na(lb2_) and na(hb2_) ? -1 : dir
+dir := na(hb2_) and na(lb2_) ? 1 : iff_1
+if na(hb2_) and na(lb2_)
+    if dir == 1
+        zz := hb2_
+        zz
+    else
+        zz := lb2_
+        zz
+else
+    iff_1 = na(lb2_) ? lb2_ : na
+    zz := na(hb2_) ? hb2_ : iff_1
+    zz
+
+for x = 0 to 1000 by 1
+    if na(close) or dir != dir[x]
+        break
+    if na(zz[x])
+        if na(pp2)
+            pp2 := zz[x]
+            pp2
+        else
+            if dir[x] == 1 and zz[x] > pp2
+                pp2 := zz[x]
+                pp2
+            if dir[x] == -1 and zz[x] < pp2
+                pp2 := zz[x]
+                pp2
+
+var int conscnt = 0
+var float condhigh = na
+var float condlow = na
+float H_ = ta.highest(3) //highestHighOutside2
+float L_ = ta.lowest(3) //lowestLowOutside2
+var line upline = na
+var line dnline = na
+bool breakoutup = false
+bool breakoutdown = false
+
+if na(ta.change(pp2))
+    if conscnt > conslen
+        if pp2 > condhigh
+            breakoutup := true
+            breakoutup
+        if pp2 < condlow
+            breakoutdown := true
+            breakoutdown
+    if conscnt > 0 and pp2 <= condhigh and pp2 >= condlow
+        conscnt += 1
+        conscnt
+    else
+        conscnt := 0
+        conscnt
+else
+    conscnt += 1
+    conscnt
+
+if conscnt >= conslen
+    if conscnt == conslen
+        condhigh := H_
+        condlow := L_
+        condlow
+    else
+        line.delete(upline)
+        line.delete(dnline)
+        condhigh := math.max(condhigh, high)
+        condlow := math.min(condlow, low)
+        condlow
+
+    // sideway lines
+    // upline := line.new(bar_index, condhigh, bar_index - conscnt, condhigh, color=color.orange, style=line.style_solid, width = 2)
+    // dnline := line.new(bar_index, condlow, bar_index - conscnt, condlow, color=color.orange, style=line.style_solid, width = 2)
+    //line.delete(upline[1])
+    //line.delete(dnline[1])
+
+    dnline
+// Detect sideway end
+////////////////////////////////////////////////////////////
+
+// ~~~~~~~~~~~ INSHORTS ~~~~~~~~~~~ //
+
+showRegression = false //input.bool(false, "Show Regression", group="Momentum", tooltip="Sometimes it can be difficult to visualize the zones with signals enabled.")
+
+zoneLengths = 50 //input.int(50, "Zone Inside Length", group="Momentum", tooltip="The Zone Inside is the Inner zone of the High and Low. This is the length used to create it.")
+zoneOutsideLengths = 75 //input.int(75, "Zone Outside Length", group="Momentum", tooltip="The Zone Outside is the Outer zone of the High and Low. This is the length used to create it.")
+smoothingLength = 14 //input.int(14, "Smoothing length", group="Momentum", tooltip="Smoothing length is the length used to smooth out our Bullish and Bearish signals, along with our Overly Bullish and Overly Bearish Signals.")
+// Kernel Settings
+lookbackWindow = 18 //input.int(18, "Lookback Window", tooltip="The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50", group="Kernel Settings")
+relativeWeighting = 8 //input.float(8., "Relative Weighting", step=0.25, tooltip="Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25", group="Kernel Settings")
+startBar = 25 //input.int(25, "Start Regression at Bar", tooltip="Bar index on which to start regression. The first bars of a chart are often highly volatile, and omission of these initial bars often leads to a better overall fit. Recommended range: 5-25", group="Kernel Settings")
+
+// ~~~~~~~~~~~ CALCULATIONS ~~~~~~~~~~~ //
+//Kernal Zones
+high15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=high, lookahead=barmerge.lookahead_on)
+low15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=low, lookahead=barmerge.lookahead_on)
+close15 = request.security(symbol=syminfo.tickerid, timeframe="15", expression=close, lookahead=barmerge.lookahead_on)
+
+highestHigh = kernels.rationalQuadratic(ta.highest(high15, zoneLengths), lookbackWindow, relativeWeighting, startBar)
+lowestLow = kernels.rationalQuadratic(ta.lowest(low15, zoneLengths), lookbackWindow, relativeWeighting, startBar)
+highestHighOutside = kernels.rationalQuadratic(ta.highest(high15, zoneOutsideLengths), lookbackWindow, relativeWeighting, startBar)
+lowestLowOutside = kernels.rationalQuadratic(ta.lowest(low15, zoneOutsideLengths), lookbackWindow, relativeWeighting, startBar)
+kernClose = kernels.rationalQuadratic(close15, lookbackWindow, relativeWeighting, startBar)
+zoneMid = math.avg(highestHigh, lowestLow)
+
+//Bullish and bearish (these hold momentum and may be a safe way to know if the momentum is still going strong for the trend)
+bullishBar = kernels.rationalQuadratic(close, lookbackWindow, relativeWeighting, startBar) > kernels.rationalQuadratic(ta.highest(ta.vwma(ohlc4, smoothingLength), smoothingLength), lookbackWindow, relativeWeighting, startBar)
+bearishBar = kernels.rationalQuadratic(close, lookbackWindow, relativeWeighting, startBar) < kernels.rationalQuadratic(ta.lowest(ta.vwma(ohlc4, smoothingLength), smoothingLength), lookbackWindow, relativeWeighting, startBar)
+
+//Very bullish and bearish (these may represent when the momentum is about to change as they are almost TOO Bullish and Bearish
+rsi = kernels.rationalQuadratic(ta.rsi(close, smoothingLength), lookbackWindow, relativeWeighting, startBar)
+vol = kernels.rationalQuadratic(volume, lookbackWindow, relativeWeighting, startBar)
+rsi21 = ta.rsi(close, 21)
+ema11 = ta.ema(close, 11)
+ema21 = ta.ema(close, 21)
+ema50 = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+
+//ema21_2 = kernels.rationalQuadratic(ta.ema(close, 21), lookbackWindow, relativeWeighting, startBar)
+
+
+//Kernal Crossing Calculations
+kern1 = kernels.rationalQuadratic(close15, lookbackWindow, relativeWeighting, startBar)
+kern2 = kernels.gaussian(close15, lookbackWindow - 2, startBar)
+// Kernel Crossovers
+bool isBullishCross = ta.crossover(kern2, kern1)
+bool isBearishCross = ta.crossunder(kern2, kern1)
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//****************************************************************************************************************************************************//
+
+lengthInput = 100 //input.int(100, title="Length", minval = 1, maxval = 5000)
+sourceInput = close //input.source(close, title="Source")
+
+group1 = "Channel Settings"
+useUpperDevInput = true //input.bool(true, title="Upper Deviation", inline = "Upper Deviation", group = group1)
+upperMultInput = 2.0 //input.float(2.0, title="", inline = "Upper Deviation", group = group1)
+useLowerDevInput = true //input.bool(true, title="Lower Deviation", inline = "Lower Deviation", group = group1)
+lowerMultInput = 2.0 //input.float(2.0, title="", inline = "Lower Deviation", group = group1)
+
+group2 = "Display Settings"
+showPearsonInput = true //input.bool(true, "Show Pearson's R", group = group2)
+extendLeftInput = false //input.bool(false, "Extend Lines Left", group = group2)
+extendRightInput = true //input.bool(true, "Extend Lines Right", group = group2)
+extendStyle = switch
+    extendLeftInput and extendRightInput => extend.both
+    extendLeftInput => extend.left
+    extendRightInput => extend.right
+    => extend.none
+
+group3 = "Color Settings"
+colorUpper = color.new(color.blue, 85) //input.color(color.new(color.blue, 85), "", inline = group3, group = group3)
+colorLower = color.new(color.red, 85) //input.color(color.new(color.red, 85), "", inline = group3, group = group3)
+
+calcSlope(source, length) =>
+    max_bars_back(source, 5000)
+    if not barstate.islast or length <= 1
+        [float(na), float(na), float(na)]
+    else
+        sumX = 0.0
+        sumY = 0.0
+        sumXSqr = 0.0
+        sumXY = 0.0
+        for i = 0 to length - 1 by 1
+            val = source[i]
+            per = i + 1.0
+            sumX += per
+            sumY += val
+            sumXSqr += per * per
+            sumXY += val * per
+        slope = (length * sumXY - sumX * sumY) / (length * sumXSqr - sumX * sumX)
+        average = sumY / length
+        intercept = average - slope * sumX / length + slope
+        [slope, average, intercept]
+        
+[s, avg, i] = calcSlope(sourceInput, lengthInput)
+startPrice = i + s * (lengthInput - 1)
+endPrice = i
+var line baseLine = na
+// if showRegression
+//     if na(baseLine) and not na(startPrice)
+//         baseLine := line.new(bar_index - lengthInput + 1, startPrice, bar_index, endPrice, width=1, extend=extendStyle, color=color.new(colorLower, 0))
+//     else
+//         line.set_xy1(baseLine, bar_index - lengthInput + 1, startPrice)
+//         line.set_xy2(baseLine, bar_index, endPrice)
+//         na
+    
+calcDev(source, length, slope, average, intercept) =>
+    upDev = 0.0
+    dnDev = 0.0
+    stdDevAcc = 0.0
+    dsxx = 0.0
+    dsyy = 0.0
+    dsxy = 0.0
+    periods = length - 1
+    daY = intercept + slope * periods / 2
+    val = intercept
+    for j = 0 to periods by 1
+        price = high[j] - val
+        if price > upDev
+            upDev := price
+        price := val - low[j]
+        if price > dnDev
+            dnDev := price
+        price := source[j]
+        dxt = price - average
+        dyt = val - daY
+        price -= val
+        stdDevAcc += price * price
+        dsxx += dxt * dxt
+        dsyy += dyt * dyt
+        dsxy += dxt * dyt
+        val += slope
+    stdDev = math.sqrt(stdDevAcc / (periods == 0 ? 1 : periods))
+    pearsonR = dsxx == 0 or dsyy == 0 ? 0 : dsxy / math.sqrt(dsxx * dsyy)
+    [stdDev, pearsonR, upDev, dnDev]
+    
+[stdDev, pearsonR, upDev, dnDev] = calcDev(sourceInput, lengthInput, s, avg, i)
+upperStartPrice = startPrice + (useUpperDevInput ? upperMultInput * stdDev : upDev)
+upperEndPrice = endPrice + (useUpperDevInput ? upperMultInput * stdDev : upDev)
+var line upper = na
+lowerStartPrice = startPrice + (useLowerDevInput ? -lowerMultInput * stdDev : -dnDev)
+lowerEndPrice = endPrice + (useLowerDevInput ? -lowerMultInput * stdDev : -dnDev)
+var float lowestEndPrice = 0.0
+if na(lowerEndPrice)
+    lowestEndPrice := lowerEndPrice
+
+var float highestEndPrice = 0.0
+if na(upperEndPrice)
+    highestEndPrice := upperEndPrice
+
+var line lower = na
+// if showRegression
+//     if na(upper) and not na(upperStartPrice)
+//         upper := line.new(bar_index - lengthInput + 1, upperStartPrice, bar_index, upperEndPrice, width=1, extend=extendStyle, color=color.new(colorUpper, 0))
+//     else
+//         line.set_xy1(upper, bar_index - lengthInput + 1, upperStartPrice)
+//         line.set_xy2(upper, bar_index, upperEndPrice)
+//         na
+//     if na(lower) and not na(lowerStartPrice)
+//         lower := line.new(bar_index - lengthInput + 1, lowerStartPrice, bar_index, lowerEndPrice, width=1, extend=extendStyle, color=color.white)
+//     else
+//         line.set_xy1(lower, bar_index - lengthInput + 1, lowerStartPrice)
+//         line.set_xy2(lower, bar_index, lowerEndPrice)
+//         na
+//     linefill.new(upper, baseLine, color = colorUpper)
+//     linefill.new(baseLine, lower, color = colorLower)
+
+float trend = math.sign(startPrice - endPrice)
+//alertcondition(sourceInput > line.get_price(upper, bar_index) or sourceInput < line.get_price(lower, bar_index), title='Regression Channel Exited', message="The price movement has exited Regression Channel's bounds")
+//alertcondition(trend[1] >= 0 and trend < 0, title='Switched to Uptrend', message='The Regression Channel trend switched from Downtrend to Uptrend')
+//alertcondition(trend[1] <= 0 and trend > 0, title='Switched to Downtrend', message='The Regression Channel trend switched from Uptrend to Downtrend')
+
+// Pearson's R
+var label r = na
+// label.delete(r[1])
+// if showPearsonInput and not na(pearsonR)
+//     r := label.new(bar_index - lengthInput + 1, lowerStartPrice, str.tostring(pearsonR, "#.################"), color = color.new(color.white, 100), textcolor=color.new(colorUpper, 0), size=size.normal, style=label.style_label_up)
+
+
+
+//****************************************************************************************************************************************************//
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+// spx 13m - 16
+//
+param25 = input.float(25, title = "Default - Param trailing 25*2 ***", group = "Default")
+param19 = input.float(19, title = "Default - Param trailing 19 ***", group = "Default")
+param18 = input.float(18, title = "Default - Param trailing 18 ***", group = "Default") 
+
+if str.tostring(timeframe.period) == '3'
+    param25 := 20
+    param19 := 22
+    param18 := 18
+if str.tostring(timeframe.period) == '10'
+    param25 := input.float(20, title = "10m - Param trailing 20 ***", group = "10M")
+    param19 := input.float(23, title = "10m - Param trailing 23 ***", group = "10M")
+    param18 := input.float(19, title = "10m - Param trailing 19 ***", group = "10M")
+    // if syminfo.ticker == 'ESU2024'
+    //     param25 := 16
+    //     param19 := 27
+    //     param18 := 18
+if str.tostring(timeframe.period) == '13'
+
+    param25 := input.float(18, title = "13m - Param trailing 18 ***", group = "13M")
+    param19 := input.float(25, title = "13m - Param trailing 25 ***", group = "13M")
+    param18 := input.float(15, title = "13m - Param trailing 15 ***", group = "13M") 
+if str.tostring(timeframe.period) == '15'
+    param25 := input.float(16, title = "15m - Param trailing 20 ***", group = "15M")
+    param19 := input.float(21, title = "15m - Param trailing 22 ***", group = "15M")
+    param18 := input.float(21, title = "15m - Param trailing 21 ***", group = "15M") 
+if str.tostring(timeframe.period) == '18'
+    param25 := 20
+    param19 := 20
+    param18 := 17
+if str.tostring(timeframe.period) == '30'
+    param25 := 20
+    param19 := 22
+    param18 := 21
+
+if syminfo.ticker == 'SPY'
+    param25 := param25/10
+    param19 := param19/10
+    param18 := param19/10
+
+// param28 = input.float(32, title = "Param trailing exit long 28", group = "Exit Long")
+// param10 = input.float(9, title = "Param trailing exit long 10", group = "Exit Long")
+// param16 = input.float(12, title = "Param trailing exit long 16", group = "Exit Long")
+
+// param11 = input.float(20, title = "Param trailing exit short 10", group = "Exit Short")
+// param15 = input.float(11, title = "Param trailing exit short 15", group = "Exit Short")
+// param29 = input.float(28, title = "Param trailing exit short 28", group = "Exit Short")
+
+param5 = 5 //input.float(5, title = "Param trailing 5")
+param3 = 3 //input.float(3, title = "Param trailing 3")
+param9 = 9 //input.float(9, title = "Param trailing 9")
+param40 = 40 //input.float(40, title = "Param trailing 40")
+param20 = 20 //input.float(20, title = "Param trailing 20")
+param17 = 17 //input.float(17, title = "Param trailing 17")
+param27 = 27 //input.float(27, title = "Param trailing 27")
+param30 = 30 //input.float(30, title = "Param trailing 30")
+
+
+
+startSession = timestamp("GMT-7", year, month, dayofmonth, 06, 45)
+endSession = timestamp("GMT-7", year, month, dayofmonth, 11, 30)
+
+extendedStartSession = timestamp("GMT-7", year, month, dayofmonth, 06, 45)
+extendedEndSession = timestamp("GMT-7", year, month, dayofmonth, 16, 00)
+
+atr = kernels.rationalQuadratic(ta.atr(21), lookbackWindow, relativeWeighting, startBar)
+
+sma20 = kernels.rationalQuadratic(ta.wma(atr, 20), lookbackWindow, relativeWeighting, startBar)
+volatilityFilter = atr > sma20
+
+
+isTradeWindow = (time >= startSession and time <= endSession) //and volatilityFilter
+
+
+//isTradeWindow = hour(time_close, utc) == 6 and minute(time_close, utc) >=30 or hour(time_close, utc) > 6 and hour(time_close, utc) < 13
+
+float pull_back = 2
+if str.format("{0}", timeframe.period) == '2'
+    pull_back := 1.4
+if str.format("{0}", timeframe.period) == '5'
+    pull_back := 1
+
+leftBars = 5
+rightBars = 3
+
+
+// Make sure length and lengthSmooth settings match your COG indicator
+length = 9
+lengthSmooth = 3
+
+
+COG = ta.cog(close, length)
+sCOG = ta.rma(COG, lengthSmooth)
+ph = ta.pivothigh(sCOG, leftBars, rightBars)
+pl = ta.pivotlow(sCOG, leftBars, rightBars)
+
+phvalue1    = ta.valuewhen(na(ph), high[rightBars], 0)
+phbar1      = ta.valuewhen(na(ph), bar_index[rightBars], 0),        phv1low = ta.valuewhen(na(ph), close[rightBars]>open[rightBars] ? close[rightBars] : open[rightBars], 0)
+phvalue2    = ta.valuewhen(na(ph), high[rightBars], 1)
+phbar2      = ta.valuewhen(na(ph), bar_index[rightBars], 1),        phv2low = ta.valuewhen(na(ph), close[rightBars]>open[rightBars] ? close[rightBars] : open[rightBars], 1)
+
+plvalue1    = ta.valuewhen(na(pl), low[rightBars], 0)
+plbar1 = ta.valuewhen(na(pl), bar_index[rightBars], 0), plv1low = ta.valuewhen(na(pl), close[rightBars]<open[rightBars] ? close[rightBars] : open[rightBars], 0)
+plvalue2    = ta.valuewhen(na(pl), low[rightBars], 1)
+plbar2      = ta.valuewhen(na(pl), bar_index[rightBars], 1)
+
+// Initialize variables for use in findPreviousHighsAndLows function
+if_pl = not na(pl) ? -1 : na
+hl = not na(ph) ? 1 : if_pl
+if_pl_value = not na(pl) ? pl : na
+if_ph_value = not na(ph) ? ph : if_pl_value
+valuewhen_1 = ta.valuewhen(na(hl), hl, 1)
+valuewhen_2 = ta.valuewhen(na(if_ph_value), if_ph_value, 1)
+if_ph_value := not na(pl) and hl == -1 and valuewhen_1 == -1 and pl > valuewhen_2 ? na : if_ph_value
+valuewhen_3 = ta.valuewhen(na(hl), hl, 1)
+valuewhen_4 = ta.valuewhen(na(if_ph_value), if_ph_value, 1)
+if_ph_value := not na(ph) and hl == 1 and valuewhen_3 == 1 and ph < valuewhen_4 ? na : if_ph_value
+valuewhen_5 = ta.valuewhen(na(hl), hl, 1)
+valuewhen_6 = ta.valuewhen(na(if_ph_value), if_ph_value, 1)
+hl := hl == -1 and valuewhen_5 == 1 and if_ph_value > valuewhen_6 ? na : hl
+valuewhen_7 = ta.valuewhen(na(hl), hl, 1)
+valuewhen_8 = ta.valuewhen(na(if_ph_value), if_ph_value, 1)
+hl := hl == 1 and valuewhen_7 == -1 and if_ph_value < valuewhen_8 ? na : hl
+if_ph_value := na(hl) ? na : if_ph_value
+
+// Finds previous three points (b, c, d, e)
+findPreviousHighsAndLows() =>  
+    ehl = hl == 1 ? -1 : 1
+    loc1 = 0.0
+    loc2 = 0.0
+    loc3 = 0.0
+    loc4 = 0.0
+    xx = 0
+    for x = 1 to 1000 by 1
+        if hl[x] == ehl and not na(if_ph_value[x])
+            loc1 := if_ph_value[x]
+            xx := x + 1
+            break
+    ehl := hl
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(if_ph_value[x])
+            loc2 := if_ph_value[x]
+            xx := x + 1
+            break
+    ehl := hl == 1 ? -1 : 1
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(if_ph_value[x])
+            loc3 := if_ph_value[x]
+            xx := x + 1
+            break
+    ehl := hl
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(if_ph_value[x])
+            loc4 := if_ph_value[x]
+            break
+    [loc1, loc2, loc3, loc4]
+
+float a = na
+float b = na
+float c = na
+float d = na
+float e = na
+if not na(hl)
+    [loc1, loc2, loc3, loc4] = findPreviousHighsAndLows()
+    a := if_ph_value
+    b := loc1
+    c := loc2
+    d := loc3
+    e := loc4
+    e
+
+_hl = not na(if_ph_value) and (a >= c and b > c and b > d and d > c and d > e or a < b and a > c and b < d)
+_lh = not na(if_ph_value) and (a <= c and b < c and b < d and d < c and d < e or a > b and a < c and b > d)
+// If we also wanted higher highs and lower lows, we could use the following:
+_hh = not na(if_ph_value) and a > b and a > c and c > b and c > d
+_ll = not na(if_pl_value) and a < b and a < c and c < b and c < d
+
+extend_fibo = 5
+extend_sup_res = 5
+var float high_point = 0
+var float low_point = 0
+if _ll
+    // line.new(bar_index, high, bar_index+8, high,  style=line.style_solid, color=color.yellow, width = 1)
+    high_point := high
+if _hh and isTradeWindow
+    // line.new(bar_index, low, bar_index+8, low,  style=line.style_solid, color=color.white, width = 1)
+    low_point := low
+
+
+
+
+//plotshape(_hh, text='HL', title='Higher Low', style=shape.labelup, color=color.new(color.green, 50), textcolor=color.new(color.white, 0), location=location.belowbar, size=size.normal)
+//plotshape(_ll, text='LH', title='Lower High', style=shape.labeldown, color=color.new(color.red, 50), textcolor=color.new(color.white, 0), location=location.abovebar, size=size.normal)
+
+// distance_x = timenow + math.round(ta.change(time) * 12)
+// distance_x2 = timenow + math.round(ta.change(time)/5)
+
+///////////////////////////////////////
+var float Open5M_HighPrice = 0.0
+var float Open5M_LowPrice = 0.0
+var float Open5M_ClosePrice = 0.0
+var float Next5M_ClosePrice = 0.0
+var float Open_6h30 = 0.0
+
+if hour(time_close, utc) == 6 and minute(time_close, utc) == 30 and second(time_close, utc) == 0
+    Open_6h30 := open
+
+if hour(time_close, utc) == 6 and minute(time_close, utc) == 35 and second(time_close, utc) == 0
+    Open5M_HighPrice := high
+    Open5M_LowPrice := low
+    Open5M_ClosePrice := close
+
+    Open_6h30 := open
+
+if hour(time_close, utc) == 6 and minute(time_close, utc) == 45 and second(time_close, utc) == 0
+    Next5M_ClosePrice := close
+
+// var string message = ''
+// var string market_trend = ''
+// if Next5M_ClosePrice < Open5M_ClosePrice
+//     message := str.format("Marketing is trending SHORT today.  Look for Up Candle.  ENTER SHORT", Open5M_HighPrice + 3)
+//     market_trend := 'Bearish'
+// if Next5M_ClosePrice > Open5M_ClosePrice
+//     message := str.format("Marketing is trending Call today.  Look for Down Candle.  ENTER LONG", Open5M_HighPrice - 3)
+//     market_trend := 'Bullish'
+
+// flash_message = ''
+// if close >= Open5M_HighPrice + param25
+//     flash_message := 'S-LONG'
+// if close < Open5M_LowPrice - param25
+//     flash_message := 'S-SHORT'
+
+var int barindex = na
+if minute(time_close, utc) == 45 and hour(time_close, utc) == 6
+    barindex := bar_index
+
+
+// if market_trend != '' and not na(barindex)
+//     if flash_message != ''
+//         label lbl_f = na
+//         label.delete(lbl_f)
+//         lbl_f := label.new(na, na, "", color = #212223, style = label.style_label_center, textcolor = color.yellow)
+//         label.set_xy(lbl_f, barindex, Open5M_HighPrice)
+//         label.set_text(lbl_f, flash_message)
+
+//     label lbl_t = na
+//     label.delete(lbl_t)
+//     lbl_t := label.new(na, na, "", color = #077280, style = label.style_label_center, textcolor = color.white)
+//     label.set_xy(lbl_t, barindex, Open5M_HighPrice - 5)
+//     label.set_text(lbl_t, '1st Trend: '+market_trend)
+
+
+
+Previous_Close = request.security(symbol=syminfo.tickerid, timeframe="D", expression=close[1], lookahead=barmerge.lookahead_on)
+
+DailyGain = close - Previous_Close
+Below_OpenLow = Open5M_LowPrice - param5
+Above_OpenHigh = Open5M_HighPrice + param5
+
+var float Next_Down_Target = na
+var float Next_Up_Target = na
+if close < Below_OpenLow and DailyGain > param3
+    Next_Down_Target := Open5M_LowPrice - param18
+
+if close > Above_OpenHigh and DailyGain < param3
+    Next_Up_Target := Open5M_HighPrice + param18
+
+var float point_entry_long = param18
+var float point_exit_long = param20
+
+var float point_entry_short = param19
+var float point_exit_short = param17
+
+if (Open5M_HighPrice - Open5M_LowPrice) >= param9 and math.abs(Open5M_ClosePrice - Previous_Close) >= param40
+    point_entry_long := param27
+    point_entry_short := param27
+
+    point_exit_long := param30
+    point_exit_short := param27
+
+if (Open5M_HighPrice - Open5M_LowPrice) < param9 and math.abs(Open5M_ClosePrice - Previous_Close) < param40
+    point_entry_long := param17
+    point_entry_short := param17
+
+    point_exit_long := param20
+    point_exit_short := param17
+
+// Logic detect start
+nzVolume  = nz(vol)
+
+i_vSMA = kernels.rationalQuadratic(ta.vwma(vol, smoothingLength), lookbackWindow, relativeWeighting, startBar)
+
+risingVol = nzVolume >= nzVolume[1]
+bullCandle = close > open
+bearCandle = close < open
+
+rising = false
+if bullCandle and bullCandle[1] and bullCandle[2] and nzVolume > i_vSMA and risingVol and risingVol[1]
+    if isBullishCross
+        rising := true
+    isBullishCross := false
+
+falling = false
+if bearCandle and bearCandle[1] and bearCandle[2] and nzVolume > i_vSMA and risingVol and risingVol[1]
+    if isBearishCross
+        falling := true
+    isBearishCross := false
+
+// Logic detect end_time
+
+// Logic call put now stat
+var float detect_short_point = 0
+var float detect_long_point = 0
+
+var float enter_long_price = 0.0
+var float enter_short_price = 0.0
+
+var float trailing_short_point = 0.0
+var float trailing_long_point = 0.0
+
+// var float High_Track = 0.0
+// var float Low_Track = 0.0
+
+// if minute(time_close, utc) <= 45 and hour(time_close, utc) == 6 or hour(time_close, utc) < 6
+//     High_Track := 0.0
+//     Low_Track := 0.0
+
+// if High_Track == 0.0 or High_Track < high
+//     High_Track := high
+
+// if Low_Track == 0.0 or Low_Track > low
+//     Low_Track := low
+
+// var float High_Track = 0.0
+// if minute(time_close, utc) == 45 and hour(time_close, utc) == 6 and Open5M_HighPrice != 0.0
+//     High_Track := Open5M_HighPrice
+
+// var float Low_Track = 0.0
+// if minute(time_close, utc) == 45 and hour(time_close, utc) == 6 and Open5M_LowPrice != 0.0
+//     Low_Track := Open5M_LowPrice
+
+var float High_Track = 0.0
+var float Low_Track = 0.0
+if minute(time_close, utc) == 0 and hour(time_close, utc) == 0 //or hour(time_close, utc) < 6
+    High_Track := 0.0
+    Low_Track := 0.0
+
+if minute(time_close, utc) >= 0 //and minute(time_close, utc) < 45 and hour(time_close, utc) == 6
+    if High_Track == 0.0 or High_Track < high
+        High_Track := high
+
+    if Low_Track == 0.0 or Low_Track > low
+        Low_Track := low
+
+if minute(time_close, utc) == 45 and hour(time_close, utc) == 6 and Open5M_LowPrice != 0.0
+    Low_Track := Open5M_LowPrice
+if minute(time_close, utc) == 45 and hour(time_close, utc) == 6 and Open5M_HighPrice != 0.0
+    High_Track := Open5M_HighPrice
+
+
+// trailing put point start ===============
+// if price > high open then check trend up to SHORT back
+if High_Track != 0.0 and close > High_Track
+    if trailing_short_point == 0.0 or trailing_short_point != 0.0 and trailing_short_point < close - Low_Track
+        trailing_short_point := close - Low_Track
+    
+var float track_trailing_short_point = 0
+
+if trailing_short_point > point_entry_short
+    track_trailing_short_point := trailing_short_point
+
+trailing_short_ok = false
+var int barindex_short = 0
+if (track_trailing_short_point > 0 and (close - Low_Track) <= (track_trailing_short_point - pull_back))
+    if High_Track != 0.0
+        High_Track := 0.0
+        barindex_short := bar_index
+    trailing_short_point := 0.0
+    track_trailing_short_point := 0.0
+    trailing_short_ok := true
+
+if High_Track == 0.0 and barindex_short == bar_index + 1
+    High_Track := high// > high_point ? high : high_point
+    Low_Track := low
+    barindex_short := 0
+// trailing put point end ==============
+
+
+// trailing call point start ===============
+// if price < low open then check trend down to LONG back
+if Low_Track != 0.0 and close < Low_Track
+    if trailing_long_point == 0.0 or trailing_long_point != 0.0 and trailing_long_point < High_Track - close
+        trailing_long_point := High_Track - close
+    
+var float track_trailing_long_point = 0
+
+if trailing_long_point > point_entry_long
+    track_trailing_long_point := trailing_long_point
+
+trailing_long_ok = false
+var int barindex_long = 0
+if (track_trailing_long_point > 0 and (High_Track - close) <= (track_trailing_long_point - pull_back))
+    if Low_Track != 0.0
+        Low_Track := 0.0
+        barindex_long := bar_index
+    trailing_long_point := 0.0
+    track_trailing_long_point := 0.0
+    trailing_long_ok := true
+
+if Low_Track == 0.0 and barindex_long == bar_index + 1
+    Low_Track := low// < low_point ? low : low_point
+    High_Track := high
+    barindex_long := 0
+// trailing call point end ==============
+
+
+// //=================logic detect call put start
+// if high_point - low > point_entry_long
+//     detect_long_point := high_point - low
+
+// detect_long_now = false
+// if (detect_long_point > 0 and (high_point - close) <= (detect_long_point - pull_back)) or (close > open and close > close[1] and market_trend == 'Bullish' and ta.crossover(low, Open5M_HighPrice))
+//     detect_long_point := 0
+//     detect_long_now := true
+
+// if high - low_point > point_entry_short
+//     detect_short_point := high - low_point
+// detect_short_now = false
+// if (detect_short_point > 0 and (close - low_point) <= (detect_short_point - pull_back)) or (close < open and close < close[1] and market_trend == 'Bearish' and ta.crossunder(high, Open5M_LowPrice))
+//     detect_short_point := 0
+//     detect_short_now := true
+
+
+//is_long = isTradeWindow and (detect_long_now or trailing_long_ok) and barstate.isconfirmed
+is_exit_long = false
+is_exit_short = false
+
+int call_logic = 0
+int put_logic = 0
+
+int exit_long_logic = 0
+int exit_short_logic = 0
+
+var float call_entry_price = 0.0
+var float trailing_long_entry_price = 0.0
+
+var float put_entry_price = 0.0
+var float trailing_short_entry_price = 0.0
+
+is_long = isTradeWindow and trailing_long_ok and barstate.isconfirmed
+
+call_color = #f1807e
+var bool trend_long = false
+if is_long
+    enter_long_price := close
+    enter_short_price := na
+    trend_long := true
+
+    call_logic := 1 // trailing Lowest Price
+
+//is_short = isTradeWindow and (detect_short_now  or trailing_short_ok) and barstate.isconfirmed
+is_short = isTradeWindow and trailing_short_ok and barstate.isconfirmed
+put_color = #ef0e0a
+var bool trend_short = false
+if is_short
+    enter_long_price := na
+    enter_short_price := close
+    trend_short := true
+
+    put_logic := 1 // trailing Highest Price
+//=================logic detect call put end
+
+
+only_long = false
+only_long_color = #90EE90
+continue_long = enter_long_price > 0 and close > open and close > close[1] and (rising or isBullishCross or ta.crossover(high, Below_OpenLow) or ta.crossover(high, Above_OpenHigh)) and barstate.isconfirmed
+if trend_long and continue_long
+    only_long := true
+    trend_long := false
+
+only_short = false
+only_short_color = #ffcccb
+continue_short = enter_short_price > 0 and close < open and close < close[1] and (falling or isBearishCross or ta.crossunder(low, Below_OpenLow) or ta.crossunder(low, Above_OpenHigh)) and barstate.isconfirmed
+if trend_short and continue_short
+    only_short := true
+    trend_short := false
+
+// logic exit 
+
+// // logic trailing exit
+// var float gain_long = 0.0
+// var float gain_short = 0.0
+// if enter_long_price != 0.0
+//     if gain_long == 0.0 or gain_long < close - enter_long_price
+//         gain_long := close - enter_long_price
+
+// is_exit_long = false 
+// if not continue_long and (gain_long >= 13 and (close - enter_long_price) <= (gain_long - 2)) or (gain_long >= 8 and (close - enter_long_price) <= (gain_long - 3))
+//     is_exit_long := true
+//     enter_long_price := 0.0
+//     trend_long := false
+//     gain_long := 0.0
+
+// if enter_short_price != 0.0
+//     if gain_short == 0.0 or gain_short < close - enter_long_price
+//         gain_short := close - enter_long_price
+
+// is_exit_short = false 
+// if not continue_short and (gain_short >= 13 and (close - enter_short_price) <= (gain_short - 2)) or (gain_short >= 8 and (close - enter_short_price) <= (gain_short - 5))
+//     is_exit_short := true
+//     enter_short_price := 0.0
+//     trend_short := false
+//     gain_short := 0.0
+// // logic call put end
+
+interval = time + math.round(ta.change(time) * 8)
+interval2 = time + math.round(ta.change(time) * 2)
+
+////////////////////////////////////strong call start
+var int call_strong_int = 0
+var int put_strong_int = 0
+var int cnt_bottom = 0
+var int cnt_top = 0
+
+var float LowPrice = 0.0
+var float HighPrice = 0.0
+
+var int bar_index_high = 0
+var int bar_index_low = 0
+
+if minute(time_close, utc) == 0 and hour(time_close, utc) == 0 //or hour(time_close, utc) < 6
+    HighPrice := 0.0
+    LowPrice := 0.0
+    call_strong_int := 0
+    put_strong_int := 0
+
+    cnt_bottom := 0
+    cnt_top := 0
+
+    bar_index_high := 0
+    bar_index_low := 0
+
+
+strong_long_index = 0
+is_strong_long = false
+
+if LowPrice == 0.0 or LowPrice > low
+    LowPrice := low
+    call_strong_int := 0
+    //bar_index_low := bar_index
+
+if not is_short and LowPrice > 0 and close - LowPrice >= param25
+    call_strong_int := call_strong_int + 1
+
+    if call_strong_int < 2
+        strong_long_index := bar_index
+        is_strong_long := true
+
+// if strong_long_index > 0
+//     var label label_sc = na
+//     label.delete(label_sc)
+//     label_sc := label.new(x=interval2, y=LowPrice+27, text=str.format("{0} LONG STRONG - NO SHORT", LowPrice+param25), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+//     line.new(strong_long_index, LowPrice+param25, strong_long_index+12, LowPrice+param25,  style=line.style_dotted, color=color.blue, width = 4)
+    
+
+if call_strong_int > 0
+    is_short := false
+
+////////////////////////////////////strong call end
+
+////////////////////////////////////strong put start
+if HighPrice == 0.0 or high > HighPrice
+    HighPrice := high
+    put_strong_int := 0
+    //bar_index_high := bar_index
+
+strong_short_index = 0
+is_strong_short = false
+
+if not is_long and HighPrice != 0.0 and HighPrice - close >= param25
+    put_strong_int := put_strong_int + 1
+
+    if put_strong_int < 2
+        strong_short_index := bar_index
+        is_strong_short := true
+
+// if strong_short_index > 0
+//     var label label_sc = na
+//     label.delete(label_sc)
+//     label_sc := label.new(x=interval2, y=HighPrice-27, text=str.format("{0} SHORT STRONG - NO LONG", HighPrice-param25), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+//     line.new(strong_short_index, HighPrice-param25, strong_short_index+12, HighPrice-param25,  style=line.style_dotted, color=color.yellow, width = 4)
+
+if put_strong_int > 0
+    is_long := false
+
+////////////////////////////////////strong put end
+
+
+////////////////////////////////////signal call put start
+// var bool has_signal_long = false
+// is_signal_long = low_point > 0 and (close > low_point and math.round(low) == math.round(low_point)) and low > Below_OpenLow
+// //plotshape(isTradeWindow and is_signal_long and not has_signal_long? low : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=color.yellow, textcolor = #ffffff,  text='LONG', offset=0)
+// if is_signal_long and isTradeWindow
+//     has_signal_long := true
+// if is_short
+//     has_signal_long := false
+
+// if _ll
+//     has_signal_long := false
+// if put_strong_int > 0
+//     is_signal_long := false
+
+var bool has_signal_short = false
+is_signal_short = high_point > 0 and (close < high_point and math.round(high) == math.round(high_point)) and high < Above_OpenHigh
+//plotshape(isTradeWindow and is_signal_short and not has_signal_short? high : na, style=shape.triangledown, size = size.tiny, location=location.abovebar, color=color.white, textcolor = #ffffff,  text='SHORT', offset=0)
+if is_signal_short and isTradeWindow
+    has_signal_short := true
+if is_long
+    has_signal_short := false
+
+if _hh
+    has_signal_short := false
+if call_strong_int > 0
+    is_signal_short := false
+
+
+//=============================================//
+// track call put confirm start
+confirm_short = false
+confirm_long = false
+if call_entry_price == 0.0 and _hh[4] and close <= high_point and close[1] <= high_point and close[2] <= high_point and close[3] <= high_point and barstate.isconfirmed
+    confirm_short := true
+
+if put_entry_price == 0.0 and _ll[4] and close >= low_point and close[1] >= low_point and close[2] >= low_point and close[3] >= low_point and barstate.isconfirmed
+    confirm_long := true
+
+// if confirm_long and isTradeWindow
+//     label.new(bar_index, low15, str.format("{0} {1}", ema21, close))
+    //(math.round(close[1]) < math.round(ema21) or math.round(close) < math.round(ema21)) and 
+// plotshape(confirm_long and isTradeWindow? low15 : na, style=shape.labelup, size = size.tiny, location=location.absolute, color=#7808ef, textcolor = #ffffff,  text='U', offset=0)
+// plotshape(confirm_short and isTradeWindow? high15 : na, style=shape.labeldown, size = size.tiny, location=location.absolute, color=#ef0e0a, textcolor = #ffffff,  text='D', offset=0)
+
+// track call put confirm end
+//=============================================//
+
+
+
+////////////////////////////////////signal call put end
+
+/////////////////////////////////
+// Logic cross box high
+// if call_entry_price == 0.0 and (ta.crossover(close[1], Open5M_HighPrice)) and (close > Open5M_HighPrice or high > Open5M_HighPrice) and isTradeWindow and barstate.isconfirmed
+//     is_long := true
+//     call_color := color.new(call_color, 80)
+
+//     call_logic := 2 // Cross Up Open High
+
+if call_entry_price == 0.0 and ((ta.crossover(close[1], Above_OpenHigh)) and (close > Above_OpenHigh or high > Above_OpenHigh) or ta.crossover(close[1], Below_OpenLow) and (close > Below_OpenLow or high > Below_OpenLow)) and isTradeWindow and barstate.isconfirmed
+    is_long := true
+    call_color := color.new(call_color, 60)
+
+    call_logic := 3 // Cross Up Above Open High
+
+if trend_short and ta.crossunder(close[1], Open5M_HighPrice) and close < Open5M_HighPrice
+    only_short := true
+    only_short_color := color.new(#ffcccb, 80)
+
+    
+
+if trend_short and ta.crossunder(close[1], Above_OpenHigh) and close < Above_OpenHigh
+    only_short := true
+    only_short_color := color.new(#ffcccb, 60)
+
+
+
+// Logic cross box low
+// if put_entry_price == 0.0 and ta.crossunder(close[1], Open5M_LowPrice) and (close < Open5M_LowPrice or low < Open5M_LowPrice ) and isTradeWindow and barstate.isconfirmed
+//     is_short := true
+//     put_color := color.new(#ef0e0a, 80)
+
+//     put_logic := 2 // Cross Down Open Low
+
+// if put_entry_price == 0.0 and (ta.crossunder(close[1], Below_OpenLow) and (close < Below_OpenLow or low < Below_OpenLow) or ta.crossunder(close[1], Above_OpenHigh) and (close < Above_OpenHigh or low < Above_OpenHigh) )and isTradeWindow and barstate.isconfirmed
+//     is_short := true
+//     put_color := color.new(#ef0e0a, 60)
+
+//     put_logic := 3 // Cross Down Below Open Low
+
+// if trend_long and ta.crossover(close[1], Open5M_LowPrice) and close > Open5M_LowPrice
+//     only_long := true
+//     only_long_color := color.new(#90EE90, 80)
+
+// if trend_long and ta.crossover(close[1], Below_OpenLow) and close > Below_OpenLow
+//     only_long := true
+//     only_long_color := color.new(#90EE90, 60)
+
+//plotshape(is_exit_long? low : na, style=shape.labelup, size = size.tiny, location=location.belowbar, color=#f1807e, textcolor = #ffffff,  text='EXIT LONG', offset=0)
+//plotshape(is_exit_short? high : na, style=shape.labeldown, size = size.tiny, location=location.abovebar, color=#ef0e0a, textcolor = #ffffff,  text='EXIT SHORT', offset=0)
+
+///////////
+//Logic only call put start
+
+
+//Logic only call put end
+
+box bx_hl_open = na
+var int start_time_box = timenow
+if minute(time_close, utc) == 0 and hour(time_close, utc) == 0
+    start_time_box := time
+
+var int end_time_box = start_time_box+3600000*11
+
+var float Max_Track_Low_Open = na
+var float Max_Track_High_Open = na
+if hour(time_close, utc) == 0
+    Max_Track_Low_Open := na
+    Max_Track_High_Open := na
+
+if hour(time_close, utc) < 6 or  hour(time_close, utc) == 6 and minute(time_close, utc) == 0
+    if na(Max_Track_Low_Open) or Max_Track_Low_Open > low
+        Max_Track_Low_Open := low
+    if na(Max_Track_High_Open) or Max_Track_High_Open < high
+        Max_Track_High_Open := high
+
+var float Max_Track_Low_6h30_7h30 = na
+var float Max_Track_High_6h30_7h30 = na
+if hour(time_close, utc) == 0
+    Max_Track_Low_6h30_7h30 := na
+    Max_Track_High_6h30_7h30 := na
+
+if hour(time_close, utc) >= 6 and minute(time_close, utc) >= 30 and hour(time_close, utc) <= 7 and minute(time_close, utc) <= 30
+    if na(Max_Track_Low_6h30_7h30) or Max_Track_Low_6h30_7h30 > low
+        Max_Track_Low_6h30_7h30 := low
+    if na(Max_Track_High_6h30_7h30) or Max_Track_High_6h30_7h30 < high
+        Max_Track_High_6h30_7h30 := high
+      
+
+
+
+if hour(time_close, utc) == 6 and minute(time_close, utc) == 50
+    if put_entry_price == 0.0 and not is_short and close <= Open5M_HighPrice and close[1] <= Open5M_HighPrice and close[2] <= Open5M_HighPrice and close[3] <= Open5M_HighPrice and barstate.isconfirmed
+        is_short := true
+        put_color := color.purple
+
+        put_logic := 4 // Always Below Open High Price
+
+    if call_entry_price == 0.0 and not is_long and close >= Open5M_LowPrice and close[1] >= Open5M_LowPrice and close[2] >= Open5M_LowPrice and close[3] >= Open5M_LowPrice and barstate.isconfirmed
+        is_long := true
+        call_color := color.blue
+
+        call_logic := 4 // Always Above Open Low Price
+
+    if is_short and is_long
+        is_short := false
+        is_long := false
+
+
+////////////////////////////////////////////////// logic trailing start
+var float Low_Price = 0.0
+var float High_Price = 0.0
+
+var float Track_Low_Price = 0.0
+var float Track_High_Price = 0.0
+
+var float Max_Track_Low_Price = 0.0
+var float Max_Track_High_Price = 0.0
+
+var int bar_index_high_price = 0
+var int bar_index_low_price = 0
+
+var int track_bar_index_high_price = 0
+var int track_bar_index_low_price = 0
+
+var int track_long_strong_int = 0
+var int track_short_strong_int = 0
+
+var float strong_short_price = 0.0
+var float strong_long_price = 0.0
+var float top_price = 0.0
+var float bottom_price = 0.0
+    
+
+if minute(time_close, utc) == 6 and hour(time_close, utc) == 30 //or hour(time_close, utc) < 6
+    Track_Low_Price := low
+    Track_High_Price := high
+
+    Max_Track_Low_Price := low
+    Max_Track_High_Price := high
+
+    strong_long_price := 0.0
+    strong_short_price := 0.0
+    top_price := 0.0
+    bottom_price := 0.0
+
+//if track_bar_index_high_price > 0 and track_bar_index_low_price > 0 and (track_bar_index_low_price - track_bar_index_high_price >= 12 or track_bar_index_high_price - track_bar_index_low_price >= 12)
+//    market_point := Max_Track_High_Price - Max_Track_Low_Price
+
+// market_point := ta.highest(12) - ta.lowest(12)
+
+if minute(time_close, utc) == 00 and hour(time_close, utc) == 0 //or hour(time_close, utc) < 6
+    High_Price := 0.0
+    Low_Price := 0.0
+    
+    bar_index_high_price := 0
+    bar_index_low_price := 0
+
+if Low_Price == 0.0 or Low_Price > low
+    Low_Price := low
+    bar_index_low_price := bar_index
+
+if High_Price == 0.0 or High_Price < high
+    High_Price := high
+    bar_index_high_price := bar_index
+
+// down trend to LONG start
+var float trailing_ll_point = 0.0
+trailing_ll_ok = false
+
+var label label_up12 = na
+label.delete(label_up12)
+
+var label label_up122 = na
+label.delete(label_up122)
+
+var label label_down12 = na
+label.delete(label_down12)
+
+var label label_down122 = na
+label.delete(label_down122)
+
+
+var int top_time = 0
+var int bottom_time = 0
+var float price_detect_bottom = 0.0
+
+if bar_index_high_price > 0 and bar_index_low_price > 0 and bar_index_high_price < bar_index_low_price
+    if trailing_ll_point == 0.0 or trailing_ll_point != 0.0 and trailing_ll_point < High_Price - close
+        trailing_ll_point := High_Price - close
+
+    var float track_trailing_ll_point = 0
+
+    if trailing_ll_point > point_entry_long
+        track_trailing_ll_point := trailing_ll_point
+
+
+    var int barindex_ll = 0
+
+    if (track_trailing_ll_point > 0 and (High_Price - close) <= (track_trailing_ll_point - pull_back))  and not only_short and not only_short[1] and not only_short[2]//and math.abs(close-open) <=1.5 and math.abs(close[1]-open[1]) <=1.5 //and low[1] > low
+        trailing_ll_point := 0.0
+        track_trailing_ll_point := 0.0
+        trailing_ll_ok := true
+
+
+        // label label_ll = na
+        //label.delete(label_ll)
+        //if low <= lowerEndPrice
+        // label_ll := label.new(x=interval2, y=low, text=str.format("{0} Bottom", low, lowestEndPrice), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+        line.new(bar_index, low, bar_index+2, low,  style=line.style_solid, color=color.white, width = 4)
+        price_detect_bottom := low
+
+        High_Price := 0.0
+        Track_Low_Price := low
+        Max_Track_Low_Price := Low_Price
+        top_price := 0.0
+        bottom_price := Low_Price
+        
+        track_bar_index_low_price := bar_index
+        bar_index_low := bar_index
+        track_long_strong_int := 0
+        // if Low_Price != 0.0
+        //     Low_Price := 0.0
+        //     barindex_ll := bar_index
+
+        bottom_time := time
+        
+track_long_price = 0.0
+track_short_price = 0.0
+if track_bar_index_high_price > 0 and track_bar_index_low_price > 0 and track_bar_index_high_price < track_bar_index_low_price
+    if Track_High_Price - Track_Low_Price < 20
+        track_short_price := Track_High_Price - close
+        // if close > Track_High_Price
+            
+        //     if close < open
+        //         label_up12 := label.new(x=time, y=low, text=str.format("+{0} PP1", close-Track_High_Price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+        //     if close > open
+        //         label_up12 := label.new(x=time, y=high, text=str.format("+{0} PP2", close-Track_High_Price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_right, xloc=xloc.bar_time, yloc=yloc.price)
+            
+            
+        // if close < Track_High_Price
+        //     if close < open
+        //         label_up122 := label.new(x=time, y=low, text=str.format("{0} CP3", close-Track_High_Price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+        //     if close > open
+        //         label_up122 := label.new(x=time, y=high, text=str.format("{0} CP4", close-Track_High_Price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_right, xloc=xloc.bar_time, yloc=yloc.price)
+        
+    if Track_High_Price - Track_Low_Price > 20
+        track_long_price := close - Track_Low_Price
+        // if close < Track_Low_Price
+
+        //     if close < open
+        //         label_down12 := label.new(x=time, y=low, text=str.format("{0} CP5", close-Track_Low_Price), color=#EE4B2B, textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_upper_right, xloc=xloc.bar_time, yloc=yloc.price)
+        //     if close > open
+        //         label_down12 := label.new(x=time, y=high, text=str.format("{0} CP6", close-Track_Low_Price), color=#EE4B2B, textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+        // if close > Track_Low_Price
+        //     if close < open
+        //         label_down122 := label.new(x=time, y=low, text=str.format("+{0} PP7", close-Track_Low_Price), color=#EE4B2B, textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_upper_right, xloc=xloc.bar_time, yloc=yloc.price)
+        //     if close > open
+        //         label_down122 := label.new(x=time, y=high, text=str.format("+{0} PP8", close-Track_Low_Price), color=#EE4B2B, textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_lower_left, xloc=xloc.bar_time, yloc=yloc.price)
+
+        if Track_High_Price - close>= param25
+            put_strong_int := put_strong_int + 1
+
+            if put_strong_int < 2
+                strong_short_index := bar_index
+                is_strong_short := true
+
+// down trend to LONG end
+
+// up trend to SHORT start
+var float trailing_hh_point = 0.0
+trailing_hh_ok = false
+
+var float price_detect_top = 0.0
+if bar_index_high_price > 0 and bar_index_low_price > 0 and bar_index_high_price > bar_index_low_price
+    if trailing_hh_point == 0.0 or trailing_hh_point != 0.0 and trailing_hh_point < close - Low_Price
+        trailing_hh_point := close - Low_Price
+
+    var float track_trailing_hh_point = 0
+
+    if trailing_hh_point > point_entry_short
+        track_trailing_hh_point := trailing_hh_point
+
+
+    var int barindex_hh = 0
+    
+    if (track_trailing_hh_point > 0 and (close - Low_Price) <= (track_trailing_hh_point - pull_back))   and not only_long and not only_long[1] and not only_long[2]
+        trailing_hh_point := 0.0
+        track_trailing_hh_point := 0.0
+        trailing_hh_ok := true
+
+
+        // var label label_hh = na
+        // label.delete(label_hh)
+        // label_hh := label.new(x=interval2, y=high, text=str.format("{0} Top", high), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+        line.new(bar_index, high, bar_index+2, high,  style=line.style_solid, color=color.blue, width = 4)
+        price_detect_top := high
+        
+        // if High_Price != 0.0
+        //     High_Price := 0.0
+        //     barindex_hh := bar_index
+        Low_Price := 0.0
+        Track_High_Price := high
+        Max_Track_High_Price := High_Price
+        track_bar_index_high_price := bar_index
+        bar_index_high := bar_index
+        track_short_strong_int := 0
+
+        top_price := High_Price
+        bottom_price := 0.0
+
+        top_time := time
+        
+    // up trend to SHORT end
+
+pp = 0.0
+cp = 0.0
+if track_bar_index_high_price > 0 and track_bar_index_low_price > 0 and track_bar_index_high_price > track_bar_index_low_price
+    if Track_High_Price - Track_Low_Price < 20
+        if close < Track_Low_Price
+            cp := close-Track_Low_Price
+            // if close < open
+            //     label_down12 := label.new(x=time, y=low, text=str.format("{0} CP", close-Track_Low_Price), color=#EE4B2B, textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_upper_right, xloc=xloc.bar_time, yloc=yloc.price)
+            // if close > open
+            //     label_down12 := label.new(x=time, y=high, text=str.format("{0} CP", close-Track_Low_Price), color=#EE4B2B, textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+        if close > Track_Low_Price
+            pp := close-Track_Low_Price
+            // if close < open
+            //     label_down122 := label.new(x=time, y=low, text=str.format("+{0} PP A1", close-Track_Low_Price), color=#EE4B2B, textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_upper_right, xloc=xloc.bar_time, yloc=yloc.price)
+            // if close > open
+            //     label_down122 := label.new(x=time, y=high, text=str.format("+{0} PP A2", close-Track_Low_Price), color=#EE4B2B, textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_lower_left, xloc=xloc.bar_time, yloc=yloc.price)
+    
+    if Track_High_Price - Track_Low_Price > 20
+        if close > Track_High_Price
+            pp := close-Track_High_Price
+            // if close < open
+            //     label_up12 := label.new(x=time, y=low, text=str.format("+{0} PP A3", close-Track_High_Price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+            // if close > open
+            //     label_up12 := label.new(x=time, y=high, text=str.format("+{0} PP A4", close-Track_High_Price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_right, xloc=xloc.bar_time, yloc=yloc.price)
+            
+            
+        if close < Track_High_Price
+            cp := close-Track_High_Price
+            // if close < open
+            //     label_up122 := label.new(x=time, y=low, text=str.format("{0} CP", close-Track_High_Price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+            // if close > open
+            //     label_up122 := label.new(x=time, y=high, text=str.format("{0} CP", close-Track_High_Price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_right, xloc=xloc.bar_time, yloc=yloc.price)
+        
+track_strong_long_index = 0
+track_strong_short_index = 0
+
+track_strong_long_price = 0.0
+track_strong_short_price = 0.0
+
+// LONG Strong start
+if Max_Track_Low_Price != 0.0 and close - Max_Track_Low_Price >= param25
+    track_long_strong_int := track_long_strong_int + 1
+
+    if track_long_strong_int < 2
+        track_strong_long_index := bar_index
+        is_strong_long := true
+        if track_strong_long_price == 0.0
+            track_strong_long_price := close
+
+call_strong_no_short = false
+if track_strong_long_index > 0
+    var label label_sc2 = na
+    //label.delete(label_sc2)
+    strong_long_price := Max_Track_Low_Price+param25
+    strong_short_price := 0.0
+    call_strong_no_short := true
+    // label_sc2 := label.new(x=interval2, y=Max_Track_Low_Price+30, text=str.format("{0} LONG STRONG - NO SHORT", Max_Track_Low_Price+param25), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    // line.new(track_strong_long_index, Max_Track_Low_Price+param25, track_strong_long_index+12, Max_Track_Low_Price+param25,  style=line.style_dotted, color=color.blue, width = 4)
+
+// LONG Strong end
+
+// SHORT Trong start
+if Max_Track_High_Price != 0.0 and Max_Track_High_Price - close >= param25
+    track_short_strong_int := track_short_strong_int + 1
+
+    if track_short_strong_int < 2
+        track_strong_short_index := bar_index
+        is_strong_short := true
+        if track_strong_short_price == 0.0
+            track_strong_short_price := close
+
+put_strong_no_long = false
+if track_strong_short_index > 0
+    var label label_sp2 = na
+    //label.delete(label_sp2)
+    strong_short_price := Max_Track_High_Price-param25
+    strong_long_price := 0.0
+    put_strong_no_long := true
+    // label_sp2 := label.new(x=interval2, y=Max_Track_High_Price-27, text=str.format("{0} SHORT STRONG - NO LONG", Max_Track_High_Price-param25), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    // line.new(track_strong_short_index, Max_Track_High_Price-param25, track_strong_short_index+12, Max_Track_High_Price-param25,  style=line.style_dotted, color=color.yellow, width = 4)
+    
+/////////////////////////////////// check bottom start
+is_bottom = false
+if Max_Track_High_Price - Max_Track_Low_Price >= 42 and track_bar_index_high_price > 0 and track_bar_index_low_price > 0 and track_bar_index_high_price < track_bar_index_low_price
+    cnt_bottom := cnt_bottom + 1
+    bar_index_high := 0
+    
+    if cnt_bottom < 2
+        is_bottom := true
+        // var label label_bt = na
+        // label.delete(label_bt)
+
+        //if Max_Track_Low_Price <= lowerEndPrice
+        //label_bt := label.new(x=interval, y=Max_Track_Low_Price, text=str.format("{0} - Bottom - Confirm Call", Max_Track_Low_Price), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+        
+        //if Max_Track_Low_Price > lowerEndPrice
+        // label_bt := label.new(x=interval, y=Max_Track_Low_Price, text=str.format("{0} - Bottom - Wait for Call", Max_Track_Low_Price), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+        // line.new(bar_index, Max_Track_Low_Price, bar_index+10, Max_Track_Low_Price,  style=line.style_solid, color=color.blue, width = 2)
+    
+/////////////////////////////////// check bottom end
+
+/////////////////////////////////// check top start
+is_top = false
+if Max_Track_High_Price - Max_Track_Low_Price >=42 and bar_index_high > 0 and bar_index_low > 0 and bar_index_high > bar_index_low
+    cnt_top := cnt_top + 1
+    bar_index_low := 0
+    
+    if cnt_top < 2
+        is_top := true
+        // var label label_tp = na
+        // label.delete(label_tp)
+        // label_tp := label.new(x=interval, y=Max_Track_High_Price, text=str.format("{0} - Top - Wait for SHORT", Max_Track_High_Price), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+        // line.new(bar_index, Max_Track_High_Price, bar_index+10, Max_Track_High_Price,  style=line.style_solid, color=color.orange, width = 2)
+    
+if call_entry_price == 0.0 and isTradeWindow and Max_Track_High_Price - Max_Track_Low_Price >= 35 and bar_index_high > 0 and bar_index_low > 0 and bar_index_high < bar_index_low and ta.crossover(high, lowestLowOutside)
+    is_long := true
+    
+    call_logic := 5 // Cross Up Support
+
+if put_entry_price == 0.0 and isTradeWindow and Max_Track_High_Price - Max_Track_Low_Price >= 35 and bar_index_high > 0 and bar_index_low > 0 and bar_index_high > bar_index_low and ta.crossunder(low, highestHighOutside)
+    is_short := true
+
+    put_logic := 5 // Cross Down Resistant
+
+/////////////////////////////////// check top end
+
+
+/// cross top => LONG
+if call_entry_price == 0.0 and isTradeWindow and low[4] < Max_Track_High_Price and low[3] < Max_Track_High_Price and low[1] < Max_Track_High_Price and low[1] < Max_Track_High_Price and ta.crossover(close, Max_Track_High_Price) and close - Track_High_Price >= 4 and barstate.isconfirmed
+    is_long := true
+    call_logic := 6
+
+/// cross top => LONG
+if put_entry_price == 0.0 and isTradeWindow and high[4] > Max_Track_Low_Price and high[3] > Max_Track_Low_Price and high[2] > Max_Track_Low_Price and high[1] > Max_Track_Low_Price and ta.crossunder(close, Max_Track_Low_Price) and Track_Low_Price - close >= 4 and barstate.isconfirmed
+    is_short := true
+    put_logic := 6
+
+is_confirm_up_strong = bar_index <= track_bar_index_high_price + 6 and close - Max_Track_Low_Price < 28 and ta.crossover(close, Track_High_Price) and high - Track_High_Price >= 2 and barstate.isconfirmed
+//plotshape(is_confirm_up_strong ? high15 : na, style=shape.labeldown, size = size.tiny, location=location.absolute, color=color.navy, textcolor = #ffffff,  text='C-OK', offset=0)
+is_confirm_down_strong = bar_index <= track_bar_index_low_price + 6 and Max_Track_High_Price - close < 28 and ta.crossunder(close, Track_Low_Price) and Track_Low_Price - low >= 2 and barstate.isconfirmed
+//plotshape(is_confirm_down_strong? low15 : na, style=shape.labelup, size = size.tiny, location=location.absolute, color=color.olive, textcolor = #ffffff,  text='P-OK', offset=0)
+
+////////////////////////////////////////////////// logic trailing end
+
+if call_entry_price != 0.0 or put_entry_price != 0.0
+    is_short := false
+    is_long := false
+
+// plotshape(is_long? low15 : na, style=shape.labelup, size = size.tiny, location=location.belowbar, color=call_color, textcolor = #ffffff,  text='LONG-N', offset=0)
+// plotshape(is_short? high15 : na, style=shape.labeldown, size = size.tiny, location=location.abovebar, color=put_color, textcolor = #ffffff,  text='SHORT-N', offset=0)
+
+
+if call_strong_int > 0
+    only_short := false
+
+if put_strong_int > 0
+    only_long := false
+
+
+
+////////////////////////////////////////////////////////////////////////
+// Start Exit Call
+if is_long //and call_logic == 6
+    call_entry_price := close
+    trailing_long_entry_price := close
+
+
+
+if call_entry_price != 0.0
+    if trailing_long_entry_price < close
+        trailing_long_entry_price := close
+
+    if close < call_entry_price and call_entry_price - close >= 5 or trailing_long_entry_price - close >= 3
+        is_exit_long := true
+// Exit Call end
+////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////
+// Start Exit Put
+if is_short //and call_logic == 6
+    put_entry_price := close
+    trailing_short_entry_price := close
+
+
+
+if put_entry_price != 0.0
+    if trailing_short_entry_price > close
+        trailing_short_entry_price := close
+
+    if close > put_entry_price and close - put_entry_price >= 5 or close - trailing_short_entry_price >= 3
+        is_exit_short := true
+// Exit Call end
+////////////////////////////////////////////////////////////////////////
+
+
+//plotshape(is_exit_long? high15 : na, style=shape.labeldown, size = size.tiny, location=location.abovebar, color=color.orange, textcolor = #ffffff,  text='SHORT-N', offset=0)
+if is_exit_long
+    is_short := true
+    put_logic := 1
+    
+    //var label label_xc = na
+    //label_xc := label.new(x=time, y=high15, text=str.format("GAIN: {0}", close-call_entry_price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_right, xloc=xloc.bar_time, yloc=yloc.price)
+    
+    call_entry_price := 0.0
+    trailing_long_entry_price := 0.0
+    
+//plotshape(is_exit_short? low15 : na, style=shape.labelup, size = size.tiny, location=location.belowbar, color=color.gray, textcolor = #ffffff,  text='X-SHORT', offset=0)
+if is_exit_short
+    is_long := true
+    call_logic := 1
+    //var label label_xc = na
+    //label_xc := label.new(x=time, y=high15, text=str.format("GAIN: {0}", close-call_entry_price), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_right, xloc=xloc.bar_time, yloc=yloc.price)
+    
+    put_entry_price := 0.0
+    trailing_short_entry_price := 0.0
+    
+////////////////////////////////////////////////////////////////////////
+
+
+//=============================================//
+// track call put top bottom start
+confirm_top_short = false
+confirm_bottom_long = false
+if call_entry_price == 0.0 and not is_long and not is_long[1] and not is_long[2] and not is_long[3] and not is_long[4] and not is_long[5] and not is_long[6] and (Max_Track_High_Price > high and Max_Track_High_Price - high <=4 or Max_Track_High_Price > low and Max_Track_High_Price - low <=4) and track_bar_index_high_price > track_bar_index_low_price and trailing_hh_ok[6] and (close <= Track_High_Price and close[1] <= Track_High_Price and close[2] <= Track_High_Price and close[3] <= Track_High_Price and close[4] <= Track_High_Price or low <= Track_High_Price and low[1] <= Track_High_Price and low[2] <= Track_High_Price and low[3] <= Track_High_Price and low[4] <= Track_High_Price) and barstate.isconfirmed
+    confirm_top_short := true
+
+    put_logic := 6 // Cross Down TOP
+    // var label label_bc = na
+    // label.delete(label_bc)
+    // label_bc := label.new(x=interval, y=Max_Track_High_Price , text=str.format(">>>>>>{0} {1} {2}", Max_Track_High_Price, low, high ), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+
+if close < ema21 and put_entry_price == 0.0 and not is_short and not is_short[1] and not is_short[2] and not is_short[3] and not is_short[4] and not is_short[5] and not is_short[6] and (Max_Track_Low_Price < low and low - Max_Track_Low_Price <=4 or Max_Track_Low_Price < high and high - Max_Track_Low_Price <=4) and track_bar_index_high_price < track_bar_index_low_price and trailing_ll_ok[6] and (close >= Track_Low_Price and close[1] >= Track_Low_Price and close[2] >= Track_Low_Price and close[3] >= Track_Low_Price or high >= Track_Low_Price and high[1] >= Track_Low_Price and high[2] >= Track_Low_Price and high[3] >= Track_Low_Price) and barstate.isconfirmed
+    confirm_bottom_long := true
+
+    call_logic := 6 // Cross Up BOTTOM
+
+    // label.new(x=time, y=high15, text=str.format("{0}==={1}", condhigh, condlow), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_right, xloc=xloc.bar_time, yloc=yloc.price)
+    
+    
+//
+// plotshape(confirm_bottom_long and isTradeWindow? low15 : na, style=shape.labelup, size = size.normal, location=location.absolute, color=#7808ef, textcolor = #ffffff,  text='B-LONG', offset=0)
+// plotshape(confirm_top_short and isTradeWindow? high15 : na, style=shape.labeldown, size = size.normal, location=location.absolute, color=#ef0e0a, textcolor = #ffffff,  text='T-SHORT', offset=0)
+// track call put top bottom end
+//=============================================//
+
+float from_sc = 0.0
+var max_high_30m = 0.0
+var min_low_30m = 0.0
+if trailing_hh_ok and high-Max_Track_Low_Price-param25 > param25+5
+    var label label_top = na
+    from_sc := high-Max_Track_Low_Price-param25
+    // DOAN comment
+    label_top := label.new(x=time, y=high15, text=str.format("+{0} pts", from_sc), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_left, xloc=xloc.bar_time, yloc=yloc.price)
+    max_high_30m := high15
+
+float from_sp = 0.0
+if trailing_ll_ok and low - Max_Track_High_Price+param25 < -1*(param25+5)
+    var label label_bottom = na
+    from_sp := low-Max_Track_High_Price+param25
+    //if Max_Track_High_Price - low >= 50
+    //    label_bottom := label.new(x=time, y=low15, text=str.format("CALL N - {0}", low+10, low-Max_Track_High_Price), color=#f69a29, textcolor = color.black, size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+            
+    min_low_30m := low15
+
+
+
+var int start_time = timenow
+var int end_time = timenow + math.round(ta.change(time) * 1)
+
+//if hour(time_close, "UTC-7") >= 13
+end_time := start_time+900000
+end_time2 = end_time+3600000*5
+
+end_time3 = end_time+3600000*6
+end_time4 = end_time+3600000*10
+
+distance_x = timenow + math.round(ta.change(time) * 12)
+distance_x2 = timenow + 2 * math.round(ta.change(time) * 50)
+
+
+var float Open_15h00 = 0.0
+
+
+if (hour(time_close, "UTC-7") >= 13 and hour(time_close, "UTC-7") <= 15) and minute(time_close, "UTC-7") == 0 //and second(time_close, "UTC-7") == 0
+//if hour(time_close, "UTC-7") == 15 and minute(time_close, "UTC-7") == 0 //and second(time_close, "UTC-7") == 0  
+    Open_15h00 := open
+
+var label label_open = na
+label_open := label.new(x=end_time-500, y=Open_15h00, text=str.format("○------ {0} - Open", Open_15h00), color=color.new(#000000, 100), textcolor = color.rgb(243, 242, 245), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+label.delete(label_open[1])
+
+var label label_open30 = na
+label_open30 := label.new(x=end_time-500, y=Open_15h00+30, text=str.format("○------ {0} - Open+30", Open_15h00+30), color=color.new(#000000, 100), textcolor = color.rgb(195, 172, 243), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+label.delete(label_open30[1])
+
+var label label_open60 = na
+label_open60 := label.new(x=end_time-500, y=Open_15h00+60, text=str.format("○------ {0} - Open+60", Open_15h00+60), color=color.new(#000000, 100), textcolor = color.rgb(151, 104, 243), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+label.delete(label_open60[1])
+
+var label label_open_30 = na
+label_open_30 := label.new(x=end_time-500, y=Open_15h00-30, text=str.format("○------ {0} - Open-30", Open_15h00-30), color=color.new(#000000, 100), textcolor = color.rgb(246, 205, 133), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+label.delete(label_open_30[1])
+
+var label label_open_60 = na
+label_open_60 := label.new(x=end_time-500, y=Open_15h00-60, text=str.format("○------ {0} - Open-60", Open_15h00-60), color=color.new(#000000, 100), textcolor = #f6ab29, size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+label.delete(label_open_60[1])
+
+var label label_ema_11_21 = na
+// var label label_ema11_crossover = na
+is_cross_up_11_21 = ta.crossover(ema11, ema21)
+if is_cross_up_11_21
+    // label_ema11_crossover := label.new(x=end_time-500, y=close, text=str.format("○------ {0} - EMA11 cross up EMA21", close), color=color.new(#000000, 100), textcolor = color.rgb(249, 10, 18), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    // label.delete(label_ema11_crossover[1])
+
+    label_ema_11_21 := label.new(x=end_time-500, y=close, text=str.format("○------ {0} - EMA11 cross up ENA21", close), color=color.new(#000000, 100), textcolor = color.rgb(242, 239, 234), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    label.delete(label_ema_11_21[1])
+
+
+// var label label_ema11_crossunder = na
+is_cross_down_11_21 = ta.crossunder(ema11, ema21)
+if is_cross_down_11_21
+    // label_ema11_crossunder := label.new(x=end_time-500, y=close, text=str.format("○------ {0} - EMA11 cross down EMA21", close), color=color.new(#000000, 100), textcolor = color.rgb(111, 109, 113), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    // label.delete(label_ema11_crossunder[1])
+
+    label_ema_11_21 := label.new(x=end_time-500, y=close, text=str.format("○------ {0} - EMA11 cross down ENA21", close), color=color.new(#000000, 100), textcolor = color.rgb(242, 239, 234), size=size.normal, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    label.delete(label_ema_11_21[1])
+
+
+////////////////////////////////////////////////////////////////////////
+// plotshape(not is_long and is_strong_long and isTradeWindow? LowPrice+param25 : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=color.yellow, textcolor = #ffffff,  text='S-LONG', offset=0)
+// plotshape(not is_short and is_strong_short and isTradeWindow? HighPrice-param25 : na, style=shape.triangledown, size = size.tiny, location=location.abovebar, color=color.white, textcolor = #ffffff,  text='S-SHORT', offset=0)
+
+// plotshape(not is_short and only_short and isTradeWindow? high15 : na, style=shape.labeldown, size = size.tiny, location=location.absolute, color=only_short_color, textcolor = #000000, text='H-SHORT', offset=0)
+// plotshape(not is_long and only_long and isTradeWindow? low15 : na, style=shape.labelup, size = size.tiny, location=location.absolute, color=only_long_color, textcolor = #000000, text='H-LONG', offset=0)
+
+// LONG LOGIC
+//alertcondition(is_long, 'LONG SPX', '{"ticker": "SPX", "logic": "1", "call_now": "1", "put_now": "0"}')
+// alertcondition(call_logic == 1, 'LONG LOGIC1 SPX', '{"ticker": "SPX", "logic": "1", "call_now": "1", "put_now": "0"}')
+// alertcondition(call_logic == 2, 'LONG LOGIC2 SPX', '{"ticker": "SPX", "logic": "2", "call_now": "1", "put_now": "0"}')
+// alertcondition(call_logic == 3, 'LONG LOGIC3 SPX', '{"ticker": "SPX", "logic": "3", "call_now": "1", "put_now": "0"}')
+// alertcondition(call_logic == 4, 'LONG LOGIC4 SPX', '{"ticker": "SPX", "logic": "4", "call_now": "1", "put_now": "0"}')
+// alertcondition(call_logic == 5, 'LONG LOGIC5 SPX', '{"ticker": "SPX", "logic": "5", "call_now": "1", "put_now": "0"}')
+// alertcondition(call_logic == 6, 'LONG LOGIC6 SPX', '{"ticker": "SPX", "logic": "6", "call_now": "1", "put_now": "0"}')
+
+// alertcondition(put_logic == 1, 'SHORT LOGIC1 SPX', '{"ticker": "SPX", "logic": "1", "call_now": "0", "put_now": "1"}')
+// alertcondition(put_logic == 2, 'SHORT LOGIC2 SPX', '{"ticker": "SPX", "logic": "2", "call_now": "0", "put_now": "1"}')
+// alertcondition(put_logic == 3, 'SHORT LOGIC3 SPX', '{"ticker": "SPX", "logic": "3", "call_now": "0", "put_now": "1"}')
+// alertcondition(put_logic == 4, 'SHORT LOGIC4 SPX', '{"ticker": "SPX", "logic": "4", "call_now": "0", "put_now": "1"}')
+// alertcondition(put_logic == 5, 'SHORT LOGIC5 SPX', '{"ticker": "SPX", "logic": "5", "call_now": "0", "put_now": "1"}')
+// alertcondition(put_logic == 6, 'SHORT LOGIC6 SPX', '{"ticker": "SPX", "logic": "6", "call_now": "0", "put_now": "1"}')
+
+// //alertcondition(is_exit_short, 'EXIT SHORT SPX', '{"ticker": "SPX", "exit_short": "1", "call_now": "0", "put_now": "0"}')
+
+// // alert strong put
+// alertcondition(track_strong_short_index > 0, "SHORT STRONG - NO LONG", '{"ticker": "SPX", "logic": "0", "call_now": "0", "put_now": "0", "strong_short": "1", "strong_long": "0"}')
+// alertcondition(track_strong_long_index > 0, "LONG STRONG - NO SHORT", '{"ticker": "SPX", "logic": "0", "call_now": "0", "put_now": "0", "strong_short": "0", "strong_long": "1"}')
+
+
+// alert('{"ticker":"SPX"'+',"strong_long_price":'+str.tostring(strong_long_price)+',"strong_short_price":'+str.tostring(strong_short_price)+',"bottom_price":'+str.tostring(bottom_price)+',"top_price":'+str.tostring(top_price)+',"open_6h30":'+str.tostring(Open_6h30)+'}', alert.freq_once_per_bar)
+plot(ema21, color=#bdf20d)
+plot(ema11, color=#ffffff)
+plot(ema50, color=color.purple)
+plot(ema200, color=color.rgb(149, 154, 246))
+
+plotshape(is_cross_up_11_21? low15 : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=color.yellow, textcolor = #ffffff,  offset=0)
+plotshape(is_cross_down_11_21? high15 : na, style=shape.triangledown, size = size.tiny, location=location.abovebar, color=color.white, textcolor = #ffffff,  offset=0)
+
+plotshape(ta.crossover(ema11, ema50) ? low15 : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=color.purple, textcolor = #ffffff,  offset=0)
+plotshape(ta.crossunder(ema11, ema50)? high15 : na, style=shape.triangledown, size = size.tiny, location=location.abovebar, color=color.aqua, textcolor = #ffffff,  offset=0)
+
+plotshape(ta.crossover(ema21, ema50) ? low15 : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=color.green, textcolor = #ffffff,  offset=0)
+plotshape(ta.crossunder(ema21, ema50)? high15 : na, style=shape.triangledown, size = size.tiny, location=location.abovebar, color=color.gray, textcolor = #ffffff,  offset=0)
+
+
+is_close_cross_up_11 = ta.crossover(close, ema11)
+is_close_cross_up_21 = ta.crossover(close, ema21)
+
+is_close_cross_down_11 = ta.crossunder(close, ema11)
+is_close_cross_down_21 =ta.crossunder(close, ema21)
+
+
+plotshape(is_close_cross_up_11 and is_close_cross_up_21 or is_close_cross_up_11[1] and is_close_cross_up_21 or is_close_cross_up_11 and is_close_cross_up_21[1] ? low15 : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=#f7f3cd, textcolor = #ffffff,  offset=0)
+plotshape(is_close_cross_down_11 and is_close_cross_down_21 or is_close_cross_down_11[1] and is_close_cross_down_21 or is_close_cross_down_11 and is_close_cross_down_21[1]? high15 : na, style=shape.triangledown, size = size.tiny, location=location.abovebar, color=#ea1414, textcolor = #ffffff,  offset=0)
+
+is_cross_up_200 = ta.crossover(close, ema200)
+is_cross_down_200 = ta.crossunder(close, ema200)
+
+//plotshape(close[1] < ema200[1] and is_cross_up_200? low15 : na, style=shape.triangleup, size = size.tiny, location=location.belowbar, color=#837bf8, textcolor = #ffffff,  offset=0)
+//plotshape(is_cross_down_200 == true? high15 : na, style=shape.triangledown, size = size.huge, location=location.abovebar, color=#7d28ec, textcolor = #ffffff,  offset=0)
+
+var label label_call_n = na
+var label label_put_n = na
+if high - ema200 > 56
+    label_put_n := label.new(x=time, y=high15, text=str.format("PUT N - {0}", close-10), color=#ed890e, textcolor = color.black, size=size.normal, style=label.style_label_lower_right, xloc=xloc.bar_time, yloc=yloc.price)
+    label.delete(label_put_n[1])
+
+if ema200 - low > 56
+    label_call_n := label.new(x=time, y=low15, text=str.format("CALL N - {0}", close+10), color=#797671, textcolor = color.black, size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+    label.delete(label_call_n[1])
+
+var float price_above_200 = 0.0
+var float price_below_200 = 0.0
+if close > ema200
+    price_above_200 := close
+
+// var label label_below_200 = na
+if price_above_200 > ema200 and close < ema200
+    price_below_200 := close
+    price_above_200 := 0.0
+    // label_below_200 := label.new(x=time, y=low15, text=str.format("Below EMA200 - {0}", close+10), color=#f4e0bf, textcolor = color.black, size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+    // label.delete(label_below_200[1])
+
+var label label_call_200 = na 
+if price_below_200 < ema200 and is_cross_up_200
+    price_below_200 := 0.0
+    //price_above_200 := close
+    label_call_200 := label.new(x=time, y=low15, text=str.format("CALL N - {0}", close+10), color=#8d8a87, textcolor = color.black, size=size.normal, style=label.style_label_upper_left, xloc=xloc.bar_time, yloc=yloc.price)
+    label.delete(label_call_200[1])
+
+var label label_ema200_upper = na
+if close > ema200
+    label_ema200_upper := label.new(x=time, y=high15, text=str.format("+{0}", close-ema200), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_lower_left, xloc=xloc.bar_time, yloc=yloc.price)
+    label.delete(label_ema200_upper[1])
+
+
+var label label_ema200_lower = na
+if close < ema200
+    label_ema200_lower := label.new(x=time, y=low15, text=str.format("{0}", close-ema200), color=#7CFC00, textcolor = color.black, size=size.normal, style=label.style_label_upper_right, xloc=xloc.bar_time, yloc=yloc.price)
+    label.delete(label_ema200_lower[1])
+
+alertcondition(is_cross_up_200, 'CROSS UP EMA200 - SPX', '{"ticker": "SPX", "logic": "7", "call_now": "1", "put_now": "0"}')
+alertcondition(is_cross_down_200, 'CROSS DOWN EMA200 - SPX', '{"ticker": "SPX", "logic": "8", "call_now": "0", "put_now": "1"}')
+
