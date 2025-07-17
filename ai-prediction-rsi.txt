@@ -1,0 +1,117 @@
+//@version=5
+indicator("AI Prediction • S-Call/Put + RSI • Volume Proxy + Support/Resistance", overlay=true)
+
+// ───── Inputs ─────
+emaLen200 = input.int(200, "EMA 200")
+emaLen48  = input.int(48,  "EMA 48")
+emaLen18  = input.int(18,  "EMA 18")
+emaLen9   = input.int(9,   "EMA 9")
+trendLen = input.int(21,  "Trend EMA")
+slopeBars = input.int(3,   "EMA Slope Bars")
+rsiLen    = input.int(14,  "RSI Length")
+rsiMin    = input.int(55,  "RSI Min (Call)")
+rsiMax    = input.int(45,  "RSI Max (Put)")
+atrLen    = input.int(14,  "ATR Length")
+atrMult   = input.float(0.75, "Exit ATR Mult")
+volLen    = input.int(20,  "SPY Volume MA Length")
+supportLookback = input.int(15, "Support/Resistance Lookback")
+zoneOffset = input.float(0.5, "S/R Filter × ATR")
+showStats = input.bool(true, "Show Stats Label")
+
+// ───── SPY Volume Proxy ─────
+proxyVol = request.security("SPY", timeframe.period, volume)
+proxyVolMA = ta.sma(proxyVol, volLen)
+volRatio = proxyVol / proxyVolMA
+
+// ───── Indicators ─────
+ema9   = ta.ema(close, emaLen9)
+ema18  = ta.ema(close, emaLen18)
+ema48  = ta.ema(close, emaLen48)
+ema200 = ta.ema(close, emaLen200)
+emaTrend = ta.ema(close, trendLen)
+atr = ta.atr(atrLen)
+rsi = ta.rsi(close, rsiLen)
+
+// ───── MACD ─────
+[macdLine, macdSignal, _] = ta.macd(close, 12, 26, 9)
+macdUp = macdLine > macdSignal
+macdDown = macdLine < macdSignal
+
+// ───── Trend ─────
+trendUp = ta.rising(emaTrend, slopeBars) and close > emaTrend
+trendDown = ta.falling(emaTrend, slopeBars) and close < emaTrend
+
+// ───── Entry Conditions ─────
+longSetup  = close > high[1] and high[1] > high[2] and high > high[1]
+shortSetup = close < low[1]  and low[1]  < low[2]  and low  < low[1]
+
+goCall = longSetup and rsi > rsiMin and macdUp and volRatio > 1 and trendUp
+goPut  = shortSetup and rsi < rsiMax and macdDown and volRatio > 1 and trendDown
+
+enterCall = goCall and barstate.isconfirmed
+enterPut  = goPut  and barstate.isconfirmed
+
+exitCall = close < close[1] - atr * atrMult and barstate.isconfirmed
+exitPut  = close > close[1] + atr * atrMult and barstate.isconfirmed
+
+// ───── Early Entry ─────
+upCandle   = close > open
+downCandle = close < open
+
+earlyCall = ta.crossover(close, ema18) and close > ema48 and rsi > rsiMin and macdUp and trendUp and upCandle and volRatio > 1 and barstate.isconfirmed
+earlyPut  = ta.crossunder(close, ema18) and close < ema48 and rsi < rsiMax and macdDown and trendDown and downCandle and volRatio > 1 and barstate.isconfirmed
+
+// ───── Support / Resistance ─────
+isSupport = low == ta.lowest(low, supportLookback)
+isResistance = high == ta.highest(high, supportLookback)
+
+var float lastSupport = na
+var float lastResistance = na
+
+newSupport = isSupport and (na(lastSupport) or math.abs(low - lastSupport) > atr * zoneOffset)
+newResistance = isResistance and (na(lastResistance) or math.abs(high - lastResistance) > atr * zoneOffset)
+
+if newSupport
+    lastSupport := low
+if newResistance
+    lastResistance := high
+
+plotshape(newSupport, title="Support Dot", location=location.belowbar, style=shape.circle, color=color.white, size=size.tiny)
+plotshape(newResistance, title="Resistance Dot", location=location.abovebar, style=shape.circle, color=color.yellow, size=size.tiny)
+
+// ───── Plot Entry / Exit Markers ─────
+plotshape(enterCall, title="S-Call", location=location.belowbar, color=color.blue, style=shape.circle, size=size.small)
+plotshape(enterPut,  title="Put Entry", location=location.abovebar, color=color.red, style=shape.circle, size=size.small)
+plotshape(earlyCall, title="Early Call", location=location.belowbar, color=color.navy, style=shape.arrowup, size=size.small)
+plotshape(earlyPut,  title="Early Put", location=location.abovebar, color=color.orange, style=shape.arrowdown, size=size.small)
+
+if exitCall
+    label.new(x=bar_index, y=low, text="🔺 O-Call", xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_label_up, color=color.blue, textcolor=color.white, size=size.small)
+
+if exitPut
+    label.new(x=bar_index, y=high, text="🔻 O-Put", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
+
+// ───── Plot Moving Averages ─────
+plot(ema9, "EMA 9", color=color.white)
+plot(ema18, "EMA 18", color=color.yellow)
+plot(ema48, "EMA 48", color=color.purple)
+plot(ema200, "EMA 200", color=color.blue, linewidth=2)
+plot(emaTrend, "EMA Trend", color=trendUp ? color.green : trendDown ? color.red : color.gray, linewidth=2)
+
+// ───── Plot RSI & Volume Ratio ─────
+plot(rsi, "RSI", color=color.orange)
+plot(volRatio, "SPY Volume Ratio", color=color.teal)
+hline(rsiMin, "RSI Call Thresh", color=color.green, linestyle=hline.style_dotted)
+hline(rsiMax, "RSI Put Thresh", color=color.red, linestyle=hline.style_dotted)
+hline(1, "Vol Ratio = 1", color=color.gray, linestyle=hline.style_dashed)
+
+// ───── Enhanced Stats Label (Big Font + State) ─────
+if showStats and barstate.islast
+    var label statsLabel = na
+    label.delete(statsLabel)
+
+    volState = volRatio > 1.8 ? "🟢🔵 Strong Volume" : volRatio > 1.05 ? "🟢 Above Avg" : volRatio < 0.95 ? "🔴 Below Avg" : "⚪ Normal"
+
+    labelText = "RSI: " + str.tostring(rsi, "#.0") + "\nSPY Vol×: " + str.tostring(volRatio, "#.00") + " " + volState
+
+    statsLabel := label.new(x=bar_index, y=high, text=labelText, xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(color.black, 80), textcolor=color.white, size=size.large)
