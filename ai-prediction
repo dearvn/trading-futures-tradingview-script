@@ -1,0 +1,110 @@
+//@version=5
+indicator("AI Prediction — Trend + RSI + MACD + Call/Put + EMA + Prediction", overlay=true)
+
+// === Inputs
+ema9Len   = input.int(9, "EMA 9 Length")
+ema18Len  = input.int(18, "EMA 18 Length")
+ema21Len  = input.int(21, "EMA 21 Length (Trend)")
+ema200Len = input.int(200, "EMA 200 Length (Long-Term)")
+
+// === EMA Calculations
+ema9   = ta.ema(close, ema9Len)
+ema18  = ta.ema(close, ema18Len)
+ema21  = ta.ema(close, ema21Len)
+ema200 = ta.ema(close, ema200Len)
+
+// === HTF Trend (1H)
+ema21_htf = request.security(syminfo.tickerid, "60", ta.ema(close, ema21Len))
+htfTrendUp = request.security(syminfo.tickerid, "60", ta.rising(ema21_htf, 3) and close > ema21_htf)
+htfTrendLabel = htfTrendUp ? "HTF UPTREND" : "HTF DOWNTREND"
+htfTrendScore = htfTrendUp ? 1 : -1
+
+// === Trend Logic
+trendUp = ta.rising(ema21, 3) and close > ema21
+trendDown = ta.falling(ema21, 3) and close < ema21
+trendLabel = trendUp ? "UPTREND" : trendDown ? "DOWNTREND" : "NEUTRAL"
+trendColor = trendUp ? color.green : trendDown ? color.red : color.gray
+trendScore = trendUp ? 1 : trendDown ? -1 : 0
+
+// === RSI
+rsi_30m = ta.rsi(close, 14)
+rsi_1h  = request.security(syminfo.tickerid, "60", ta.rsi(close, 14))
+rsi_2h  = request.security(syminfo.tickerid, "120", ta.rsi(close, 14))
+
+rsiLabel_30m = "RSI 30m: " + str.tostring(rsi_30m, "#.0")
+rsiLabel_1h  = "RSI 1H: " + str.tostring(rsi_1h, "#.0")
+rsiLabel_2h  = "RSI 2H: " + str.tostring(rsi_2h, "#.0")
+rsiScore = rsi_30m > 55 ? 1 : rsi_30m < 45 ? -1 : 0
+
+// === MACD
+[macdLine, macdSignal, _] = ta.macd(close, 12, 26, 9)
+macdLabel = macdLine > macdSignal ? "MACD BULLISH" : macdLine < macdSignal ? "MACD BEARISH" : "MACD NEUTRAL"
+macdColor = macdLine > macdSignal ? color.green : macdLine < macdSignal ? color.red : color.gray
+macdScore = macdLine > macdSignal ? 1 : macdLine < macdSignal ? -1 : 0
+
+// === Live Call/Put Volume Estimate (SPY Volume Proxy)
+spyVol = request.security("SPY", timeframe.period, volume)
+spyVolMA = ta.sma(spyVol, 20)
+volRatio = spyVol / spyVolMA
+cpLabel = volRatio > 1.2 ? "CALL DOMINANT" : volRatio < 0.83 ? "PUT DOMINANT" : "BALANCED"
+cpColor = volRatio > 1.2 ? color.green : volRatio < 0.83 ? color.red : color.gray
+cpScore = volRatio > 1.2 ? 1 : volRatio < 0.83 ? -1 : 0
+
+// === EMA Cross
+emaCross = ema9 - ema18
+emaLabel = emaCross > 0 ? "EMA BULLISH" : emaCross < 0 ? "EMA BEARISH" : "EMA FLAT"
+emaColor = emaCross > 0 ? color.green : emaCross < 0 ? color.red : color.gray
+emaScore = emaCross > 0 ? 1 : emaCross < 0 ? -1 : 0
+
+// === Strength Score
+totalScore = trendScore + htfTrendScore + rsiScore + macdScore + cpScore + emaScore
+scorePercent = (totalScore + 6) * 100 / 12
+scoreLabel = totalScore > 1 ? "CALL " + str.tostring(scorePercent, "#.0") + "%" : totalScore < -1 ? "PUT " + str.tostring(scorePercent, "#.0") + "%" : "NEUTRAL " + str.tostring(scorePercent, "#.0") + "%"
+
+// === Prediction Logic (6:55:01–6:59:55 AM candle)
+isTargetMinute = (hour == 6 and minute >= 55 and minute <= 59)
+predicted = close > open ? "CALL Prediction" : close < open ? "PUT Prediction" : "NEUTRAL"
+predictionLabel = isTargetMinute ? predicted : "WAITING"
+
+// === Dashboard Table (bottom right)
+var table dash = table.new(position.bottom_right, 2, 11)
+
+if bar_index > 5
+    table.cell(dash, 0, 0, "Label", bgcolor=color.new(color.gray, 90), text_color=color.white)
+    table.cell(dash, 1, 0, "Value", bgcolor=color.new(color.gray, 90), text_color=color.white)
+
+    table.cell(dash, 0, 1, "Trend", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 1, trendLabel, bgcolor=color.new(trendColor, 80), text_color=color.white)
+
+    table.cell(dash, 0, 2, "HTF Trend", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 2, htfTrendLabel, bgcolor=color.orange, text_color=color.white)
+
+    table.cell(dash, 0, 3, "RSI 30m", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 3, rsiLabel_30m, bgcolor=(rsi_30m > 70 ? color.white : rsi_30m < 30 ? color.yellow : rsi_30m > 55 ? color.green : rsi_30m < 45 ? color.red : color.gray), text_color=color.black)
+
+    table.cell(dash, 0, 4, "RSI 1H", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 4, rsiLabel_1h, bgcolor=(rsi_1h > 70 ? color.white : rsi_1h < 30 ? color.yellow : rsi_1h > 55 ? color.green : rsi_1h < 45 ? color.red : color.gray), text_color=color.black)
+
+    table.cell(dash, 0, 5, "RSI 2H", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 5, rsiLabel_2h, bgcolor=(rsi_2h > 70 ? color.white : rsi_2h < 30 ? color.yellow : rsi_2h > 55 ? color.green : rsi_2h < 45 ? color.red : color.gray), text_color=color.black)
+
+    table.cell(dash, 0, 6, "MACD", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 6, macdLabel, bgcolor=macdColor, text_color=color.white)
+
+    table.cell(dash, 0, 7, "Call/Put", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 7, cpLabel, bgcolor=cpColor, text_color=color.white)
+
+    table.cell(dash, 0, 8, "EMA Cross", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 8, emaLabel, bgcolor=emaColor, text_color=color.white)
+
+    table.cell(dash, 0, 9, "Confidence", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 9, scoreLabel, bgcolor=(totalScore > 1 ? color.green : totalScore < -1 ? color.red : color.gray), text_color=color.white)
+
+    table.cell(dash, 0, 10, "Prediction", bgcolor=color.black, text_color=color.white)
+    table.cell(dash, 1, 10, predictionLabel, bgcolor=color.new(color.fuchsia, 80), text_color=color.white)
+
+// === Plot EMAs
+plot(ema9, color=color.orange)
+plot(ema18, color=color.blue)
+plot(ema21, color=color.green)
+plot(ema200, color=color.red)
