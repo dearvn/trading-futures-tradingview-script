@@ -91,9 +91,65 @@ Using script `GOLD_UZ_OZ.txt`
 ![Alt text](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/gold.png?raw=true "Gold")
 
 
-## Using the latest version of `es-futures-no-repaint-v1.x.txt` to alert on 1M ES without REPAINT time trading from 6:30AM to 12:30 PM UTC-8
+## ES Futures 1M No Repaint — v1.4 (latest)
 
-Alert to auto trade using timeframe 1M: `es-futures-no-repaint-v1.x.txt`
+File: `es-futures-no-repaint-v1.4.txt`  
+Timeframe: **1M**, Ticker: **ES1!**  
+Trading hours: 6:30 AM – 12:30 PM UTC-8
+
+### Repaint fixes in v1.4 (vs v1.3)
+- All `request.security()` calls changed from `lookahead_on` → `lookahead_off` (13 calls fixed) — this was the primary repainting source
+- Multi-timeframe averages (`avg_3m`, `avg_5m`, `avg_8m`, `avg_10m`) now use only confirmed HTF bars — removed all `[0]` (current unconfirmed bar) references
+- `avg` and `avg_change` shifted to exclude the current open bar (`open[0]` removed)
+- All persistent `var bool` cross states (`is_cross_down_basis`, `is_cross_up_rsi`, etc.) now only latch on `barstate.isconfirmed`
+
+### Auto Trade on Tradovate via TradingView Webhook
+
+**Flow:**
+```
+TradingView Alert (Pine Script v1.4)
+    ↓  webhook HTTP POST (JSON)
+Your server (tradovate-trading-bot)
+    ↓  Tradovate WebSocket / REST API
+Tradovate → order executed
+```
+
+**Step 1 — Add alertcondition to the Pine Script**
+
+Add to the end of `es-futures-no-repaint-v1.4.txt`:
+
+```pine
+alertcondition(longCondition and not lock_time,
+  title="BUY Signal",
+  message='{"action":"buy","symbol":"ESM2025","qty":1,"price":{{close}}}')
+
+alertcondition(shortCondition and not lock_time,
+  title="SELL Signal",
+  message='{"action":"sell","symbol":"ESM2025","qty":1,"price":{{close}}}')
+
+alertcondition(closelong,
+  title="CLOSE LONG",
+  message='{"action":"closeLong","symbol":"ESM2025"}')
+
+alertcondition(closeshort,
+  title="CLOSE SHORT",
+  message='{"action":"closeShort","symbol":"ESM2025"}')
+```
+
+**Step 2 — Configure TradingView Alert**
+
+1. Add indicator v1.4 to chart (1M, ES1!)
+2. Create Alert → select condition **"BUY Signal"** (repeat for SELL, CLOSE LONG, CLOSE SHORT)
+3. Set **Webhook URL** = `https://your-server.com/webhook`
+4. The `{{close}}` placeholder is auto-filled by TradingView at alert time
+
+**Step 3 — tradovate-trading-bot receives webhook**
+
+The bot exposes a `/webhook` endpoint, parses the JSON payload, and sends the order to Tradovate API.
+
+See: [tradovate-trading-bot](https://github.com/dearvn/tradovate-trading-bot)
+
+---
 
 Review history timeframe 30s: `es-futures-repaint-30s.txt`
 
