@@ -1,0 +1,507 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © binancash
+
+//@version=6
+strategy('V1.7 ES - Futures 1M No Repaint', overlay = true, pyramiding = 1, default_qty_type = strategy.fixed, default_qty_value = 1)
+
+// ============================================================
+// v1.7 CHANGELOG (vs v1.6)
+//  FIX  is_br was always false ('olch4' typo + price<0.3) -> condition removed
+//  FIX  long take-profit was unreachable (measured off trailing peak, not entry)
+//  FIX  shorts had no trailing/consistent stop (put-trailing block was commented out)
+//  FIX  macd_12_26 mislabelled (was really 5/13); unused fast_ma_12/slow_ma_26 removed
+//  FIX  is_strong_buy off-switch was guarded by running_pl but crossed running_ph
+//  NEW  symmetric risk model: REAL fixed TP from entry + optional trailing stop (both sides)
+//  PRUNE removed dead code: trendUp/Down + WMA-cross arrays, isUp/DownTrend, start_long,
+//        longCondition2/3, up10m/down8m + 8m/10m HTF block, continue_up/down,
+//        closeLong5, profit_long, start_up_1, cross_down_basis, is_buy/is_sell, wma200
+// ============================================================
+
+// ---------- RISK INPUTS (symmetric long/short) ----------
+// This is a RIGHT-TAIL strategy: the edge is winners that run further than losers.
+// So the trailing stop is the primary exit; the fixed TP is OFF by default (it caps the tail).
+stopPerc      = input.float(0.07, 'Stop Loss %',      step = 0.01, group = 'Risk') / 100  // initial hard stop from entry
+useTrail      = input.bool (true, 'Use Trailing Stop',              group = 'Risk')
+trailActivate = input.float(0.00, 'Trail Activate %', step = 0.01, group = 'Risk') / 100  // profit before trail engages (0 = immediate)
+trailPerc     = input.float(0.07, 'Trail Distance %', step = 0.01, group = 'Risk') / 100  // trail gap from peak/trough (rides winners)
+useTake       = input.bool (false, 'Use Fixed Take Profit',         group = 'Risk')         // OFF: let winners run on the trail
+takePerc      = input.float(0.20, 'Take Profit %',    step = 0.01, group = 'Risk') / 100  // only used when useTake = true
+useSignalExit = input.bool (true, 'Use Signal-Based Exits',         group = 'Risk')         // OFF = ride the trailing stop only (longer holds)
+
+low1d = request.security(symbol = syminfo.tickerid, timeframe = '60', expression = low, lookahead = barmerge.lookahead_off)
+// 10 confirmed prior bars (no open[0] = no unconfirmed-bar data)
+avg = (open[10] + open[9] + open[8] + open[7] + open[6] + open[5] + open[4] + open[3] + open[2] + open[1]) / 10
+
+//////////////////////////////////////////////////////////////
+open10 = request.security(symbol = syminfo.tickerid, timeframe = '10', expression = open, lookahead = barmerge.lookahead_off)
+
+length = input.int(11, minval = 1)
+mult = input.float(3.0, minval = 0.001, maxval = 50)
+
+basis3 = ta.vwma(open10, 50)
+dev3 = mult * ta.stdev(open10, 50)
+upper3_6 = basis3 + 1 * dev3
+lower3_6 = basis3 - 1 * dev3
+
+plot(basis3, color = color.blue, linewidth = 4, title = 'basis3')
+
+uper_10 = (upper3_6 + basis3) / 2
+plot(uper_10, color = color.white, linewidth = 4, title = 'uper_10')
+
+lower_10 = (lower3_6 + basis3) / 2
+plot(lower_10, color = color.green, linewidth = 4, title = 'lower_10')
+
+//////////////////////////////////////////
+basis = ta.vwma(open, length)
+dev = mult * ta.stdev(open, length)
+upper_1 = basis + 0.236 * dev
+upper_6 = basis + 1 * dev
+lower_1 = basis - 0.236 * dev
+lower_6 = basis - 1 * dev
+plot(upper_6, color = color.red, linewidth = 2, title = 'upper_6')
+plot(basis, color = color.yellow, linewidth = 2, title = 'basis')
+plot(lower_6, color = color.blue, linewidth = 2, title = 'lower_6')
+
+////////////////////////////////////////////////////////////
+var bool is_cross_down_basis = false
+var bool is_cross_up_basis = false
+var bool is_cross_down_lower_1 = false
+var bool is_cross_up_lower_1 = false
+
+// only update persistent cross state on confirmed bars (no repaint)
+if ta.crossunder(avg, basis) and barstate.isconfirmed
+    is_cross_down_basis := true
+    is_cross_up_basis := false
+if ta.crossover(avg, basis) and barstate.isconfirmed
+    is_cross_down_basis := false
+    is_cross_up_basis := true
+
+if ta.crossunder(avg, lower_1) and barstate.isconfirmed
+    is_cross_down_lower_1 := true
+    is_cross_up_lower_1 := false
+if ta.crossover(avg, lower_1) and barstate.isconfirmed
+    is_cross_down_lower_1 := false
+    is_cross_up_lower_1 := true
+
+///////////////////////////////////////////////////////////
+// pivots (running support/resistance)
+point_lb = 5
+point_rb = 5
+
+oh = math.max(open[5], open[4], open[3], open[2], open[1], open)
+ol = math.min(open[4], open[3], open[2], open[1], open)
+
+point_ph = ta.pivothigh(oh, point_lb, point_rb)
+point_pl = ta.pivotlow(ol, point_lb, point_rb)
+
+var float running_ph = na
+var float running_pl = na
+running_ph := running_ph
+running_pl := running_pl
+if bool(point_ph)
+    running_ph := point_ph
+if bool(point_pl)
+    running_pl := point_pl
+
+plot(running_ph, title = 'R', style = plot.style_circles, linewidth = 1, color = color.red, offset = -point_rb)
+plot(running_pl, title = 'S', style = plot.style_circles, linewidth = 1, color = color.blue, offset = -point_rb)
+
+// confirmed-bar moves only (no open[0])
+avg_change = (math.abs(open[11] - open[10]) + math.abs(open[10] - open[9]) + math.abs(open[9] - open[8]) + math.abs(open[8] - open[7]) + math.abs(open[7] - open[6]) + math.abs(open[6] - open[5]) + math.abs(open[5] - open[4]) + math.abs(open[4] - open[3]) + math.abs(open[3] - open[2]) + math.abs(open[2] - open[1])) / 10
+
+plot(avg, color = color.gray, linewidth = 4, title = 'avg')
+
+source = avg
+
+///////////////////////////////////////////
+o_h = math.max(open[3], open[2], open[1])
+o_l = math.min(open[3], open[2], open[1])
+o_o = open[1]
+o_c = open
+
+src(_src) =>
+    Close = (o_h + o_l + o_o + o_c) / 4
+    Open = (o_o + o_c) / 2
+    High = math.max(o_h, math.max(Open, Close))
+    Low = math.min(o_l, math.min(Open, Close))
+    HL2 = math.avg(High, Low)
+    HLC3 = math.avg(High, Low, Close)
+    OHLC4 = math.avg(Open, High, Low, Close)
+    Price = _src == 'close' ? Close : _src == 'open' ? Open : _src == 'high' ? High : _src == 'low' ? Low : _src == 'hl2' ? HL2 : _src == 'hlc3' ? HLC3 : OHLC4
+    Source = math.round(Price / syminfo.mintick) * syminfo.mintick // align Pine prices with chart instrument prices
+    Source
+
+// === Heikin-style synthetic candles ===
+hk_c = src('close')
+hk_o = src('open')
+hk_h = src('high')
+hk_l = src('low')
+// NOTE: bar_up is true on a BEARISH synthetic candle (close < open). Naming kept for
+//       consistency with the tuned condition stack — read it as "down candle".
+bar_up = hk_c < hk_o
+bar_down = hk_c >= hk_o
+
+///////////////////////////////////////////////
+// WMA structure
+wma13 = ta.wma(o_c, 13)
+wma48 = ta.wma(o_c, 48)
+
+// super trend start
+cci_period = 28
+cci = ta.cci(avg, cci_period)
+ML = 0
+
+f_supertrend() =>
+    Up = hl2 - 3.0 * ta.atr(3)
+    Dn = hl2 + 3.0 * ta.atr(3)
+    TrendUp = 0.0
+    TrendUp := cci[1] > ML ? math.max(Up, TrendUp[1]) : Up
+    TrendDown = 0.0
+    TrendDown := cci[1] < ML ? math.min(Dn, TrendDown[1]) : Dn
+    Trend = 0.0
+    Trend := cci > ML ? 1 : cci < ML ? -1 : nz(Trend[1], 1)
+    Tsl = Trend == 1 ? TrendUp : TrendDown
+    Tsl
+
+st_tsl = f_supertrend()
+buy = source >= st_tsl
+sell = source < st_tsl
+buy1 = ta.barssince(buy)
+sell1 = ta.barssince(sell)
+buy_trend = buy1[1] > sell1[1] ? true : false
+// super trend end
+
+//////////////////////////////////
+open3m = request.security(symbol = syminfo.tickerid, timeframe = '3', expression = open, lookahead = barmerge.lookahead_off)
+open5m = request.security(symbol = syminfo.tickerid, timeframe = '5', expression = open, lookahead = barmerge.lookahead_off)
+
+// confirmed HTF bars only (no [0])
+avg_3m_8 = (open3m[8] + open3m[7] + open3m[6] + open3m[5] + open3m[4] + open3m[3] + open3m[2] + open3m[1]) / 8
+avg_3m = (open3m[3] + open3m[2] + open3m[1]) / 3
+avg_5m = (open5m[5] + open5m[4] + open5m[3] + open5m[2] + open5m[1]) / 5
+
+wma_3m_3 = ta.wma(avg_3m, 3)
+wma_3m_8 = ta.wma(avg_3m_8, 8)
+wma_5m_5 = ta.wma(avg_5m, 11) // (kept: v1.5 fixed source to avg_5m)
+
+rsi = ta.rsi(hk_c, 5)
+
+bottomsupport = bool(running_pl) and ta.crossunder(avg, running_pl) and rsi > rsi[1] + 8
+
+bigdrop = rsi + 6 < rsi[1] and avg < running_ph and bar_up[4] and bar_up[3] and bar_up[2] and not bar_up[1] and not bar_up and wma_3m_3 > wma_5m_5
+
+is_cross_res = ta.crossover(o_c, running_ph) and o_c > wma13 and wma13 > wma48
+
+var bool is_strong_buy = false
+var bool is_strong_sell = false
+if bool(running_ph) and ta.crossover(source, running_ph) and barstate.isconfirmed
+    is_strong_buy := true
+    is_strong_sell := false
+// FIX v1.7: guard was running_pl with a running_ph cross -> corrected to running_ph
+if bool(running_ph) and ta.crossunder(source, running_ph) and barstate.isconfirmed
+    is_strong_buy := false
+if bool(running_pl) and ta.crossunder(source, running_pl) and barstate.isconfirmed
+    is_strong_sell := true
+    is_strong_buy := false
+if bool(running_pl) and ta.crossover(source, running_pl) and barstate.isconfirmed
+    is_strong_sell := false
+
+// logic buy/sell improve (T3-style smoother Cto vs EMA3)
+src = source
+di = (6 - 1.0) / 2.0 + 1.0
+c1 = 2 / (di + 1.0)
+c2 = 1 - c1
+c3 = 3.0 * (0.4 * 0.4 + 0.4 * 0.4 * 0.4)
+c4 = -3.0 * (2.0 * 0.4 * 0.4 + 0.4 + 0.4 * 0.4 * 0.4)
+c5 = 3.0 * 0.4 + 1.0 + 0.4 * 0.4 * 0.4 + 3.0 * 0.4 * 0.4
+var float i1 = na
+var float i2 = na
+var float i3 = na
+var float i4 = na
+var float i5 = na
+var float i6 = na
+i1 := c1 * src + c2 * nz(i1[1])
+i2 := c1 * i1 + c2 * nz(i2[1])
+i3 := c1 * i2 + c2 * nz(i3[1])
+i4 := c1 * i3 + c2 * nz(i4[1])
+i5 := c1 * i4 + c2 * nz(i5[1])
+i6 := c1 * i5 + c2 * nz(i6[1])
+Cto = -0.4 * 0.4 * 0.4 * i6 + c3 * i5 + c4 * i4 + c5 * i3
+ema3 = ta.ema(source, 3)
+
+var bool is_cross_up = false
+var bool is_cross_down = false
+if ta.crossover(ema3, Cto) and barstate.isconfirmed
+    is_cross_up := true
+    is_cross_down := false
+if ta.crossunder(ema3, Cto) and barstate.isconfirmed
+    is_cross_down := true
+    is_cross_up := false
+
+// short trigger + short-side profit confirmation
+short = (source < Cto and o_c[1] > Cto[1] and source < o_c[1] or o_c[1] < Cto[1] and source < o_c[1] and o_c[1] > o_c[2] and source < ema3) and barstate.isconfirmed ? true : false
+profit_short = source > o_c[1] and oh > ema3 and o_c[1] < ema3[1] and o_c[2] < ema3[2] and barstate.isconfirmed
+
+//////////////////////////////////////////
+wma3 = ta.wma(avg, 3)
+wma11 = ta.wma(avg, 11)
+wma21 = ta.wma(avg, 21)
+
+// confirmed bars only (no open[0])
+tiny_change = math.abs(math.abs(open[2] - open[1]) - avg_change)
+end_up_2 = ta.crossover(open, running_ph) and open[2] < open[1] and open[1] < open and tiny_change > 0.1
+
+///////////////////////MACD START  (NOTE: this is a 5/13 MACD, kept as tuned)
+fast_length = 5
+slow_length = 13
+signal_length = 8
+fast_ma = ta.ema(avg, fast_length)
+slow_ma = ta.ema(avg, slow_length)
+macd = fast_ma - slow_ma
+signal = ta.ema(macd, signal_length)
+hist = macd - signal
+
+// hist_2 == 5/13 MACD histogram (variable kept named *_12_26 for backward compat)
+macd_12_26 = fast_ma - slow_ma
+signal_9 = ta.ema(macd_12_26, 9)
+hist_2 = macd_12_26 - signal_9
+
+plot(macd_12_26, title = 'MACD', color = color.white)
+plot(signal_9, title = 'Signal', color = color.yellow)
+
+just_change_down = hist_2[1] > 0 and hist_2 < 0
+is_weak_put = just_change_down or just_change_down[1]
+plotshape(is_weak_put ? low : na, title = 'WeakPut', style = shape.xcross, location = location.absolute, color = color.blue, size = size.tiny)
+//////////////////////MACD END
+
+/////////////////////RSI START
+ma(source, length, type) =>
+    switch type
+        'SMA' => ta.sma(source, length)
+        'Bollinger Bands' => ta.sma(source, length)
+        'EMA' => ta.ema(source, length)
+        'SMMA (RMA)' => ta.rma(source, length)
+        'WMA' => ta.wma(source, length)
+        'VWMA' => ta.vwma(source, length)
+
+rsiLengthInput = 11
+maTypeInput = 'SMA'
+maLengthInput = 24
+up = ta.rma(math.max(ta.change(avg), 0), rsiLengthInput)
+down = ta.rma(-math.min(ta.change(avg), 0), rsiLengthInput)
+rsi2 = down == 0 ? 100 : up == 0 ? 0 : 100 - 100 / (1 + up / down)
+rsiMA = ma(rsi, maLengthInput, maTypeInput)
+var bool is_cross_down_rsi = false
+var bool is_cross_up_rsi = false
+if ta.crossover(rsi2, rsiMA) and barstate.isconfirmed
+    is_cross_down_rsi := false
+    is_cross_up_rsi := true
+if ta.crossunder(rsi2, rsiMA) and barstate.isconfirmed
+    is_cross_down_rsi := true
+    is_cross_up_rsi := false
+/////////////////////RSI END
+
+// =============== LONG CONDITIONS ===============
+longCondition1 = wma3 > wma11 and ta.crossover(open, wma21) and wma_3m_3[1] < wma_3m_3 and not(wma_3m_8[1] > wma_3m_8)
+
+longCondition4 = ta.crossover(open, wma_3m_8) and ta.crossover(open, wma_5m_5) and not(wma_3m_3 < wma_5m_5 and wma_5m_5 < wma_3m_8) and not(macd[1] > macd)
+
+start_bottom = hist < 0 and hist[1] < hist
+
+longCondition5 = start_bottom and ta.crossover(wma_3m_3, wma_5m_5) and avg[1] < avg
+
+longCondition6 = buy_trend and bar_up and is_cross_res
+
+longCondition7 = bar_up and buy_trend and is_cross_up and bottomsupport and is_strong_buy
+
+longCondition9 = bar_down[3] and bar_down[2] and bar_up[1] and bar_up and hist_2[1] < 0 and hist_2[1] < hist_2
+if rsi2[1] < rsi2 and rsi2 > 70 and bar_up[2] and bar_up[1] and bar_up
+    longCondition9 := false
+
+closeShort1 = start_bottom and (not(open < wma_3m_3 or open[1] < wma_3m_3[1]) or wma_3m_3[1] < wma_3m_3)
+
+longCondition11 = not bar_up[4] and not bar_up[3] and not bar_up[2] and bar_up[1] and bar_up and ta.crossover(hk_h, wma_5m_5)
+
+longCondition12 = avg < lower_6 and ta.crossover(open[2], avg[2]) and open > open[1] and open[1] > open[2] and open[2] > open[3] and avg[5] > avg[3]
+
+var bool is_longCondition11 = false
+if longCondition12 and (longCondition11[1] or longCondition11[2])
+    is_longCondition11 := true
+
+longCondition13 = ta.crossover(open, uper_10) and (ta.crossover(avg, basis3) or ta.crossover(avg, basis3)[1])
+var bool is_up10m = false
+if longCondition13 and open > basis
+    is_up10m := true
+if ta.crossunder(open, uper_10) or ta.crossunder(avg, uper_10)
+    is_up10m := false
+
+plotshape(is_up10m ? low : na, title = 'No Short', style = shape.xcross, location = location.absolute, color = color.green, size = size.tiny)
+
+longCondition = longCondition9 or longCondition4 or longCondition5 or longCondition6 or longCondition13 or longCondition1 or longCondition7
+
+if not bar_up or macd_12_26[1] > macd_12_26 or rsiMA[1] > rsiMA
+    longCondition := false
+
+if ta.crossunder(wma_3m_3, wma_5m_5) or hist[1] > hist or not bar_up
+    longCondition := false
+
+end_up_1 = open[4] < open[3] and open[3] < open[2] and open[2] > open[1] and open[1] > open
+
+hr = hour(time_close, 'UTC-8')
+mi = minute(time_close, 'UTC-8')
+lock_time = hr >= 13 or hr == 12 and mi > 30 or hr < 6 or hr == 6 and mi < 30
+
+macd_up = hist_2[1] < 0 and hist_2 > hist_2[1] and hist_2[2] < 0 and hist_2[1] < hist_2[2]
+
+longCondition10 = longCondition9[1] and o_c > avg and o_c[1] > avg[1] and macd_up[1]
+closeShort2 = wma3 < wma11 and open[1] > wma3[1] and open > wma11 and not(wma_3m_3[1] > wma_3m_3) and not(wma_5m_5[1] > wma_5m_5)
+if closeShort2
+    longCondition10 := false
+if macd_12_26[1] > macd_12_26
+    longCondition10 := false
+
+longCondition := longCondition10 or longCondition
+
+// =============== SHORT CONDITIONS ===============
+start_short_2 = wma3 > wma11 and open[2] < wma3 and open[1] < wma11 and open < wma11
+
+shortCondition1 = bigdrop and is_strong_sell
+
+shortCondition3 = bar_up[10] and bar_up[9] and bar_up[8] and bar_up[7] and bar_up[6] and bar_up[5] and bar_up[4] and bar_up[3] and bar_up[2] and bar_up[1] and not bar_up
+
+shortCondition4 = bar_up[3] and bar_up[2] and not bar_up[1] and not bar_up and ta.crossunder(hk_l, wma_5m_5)
+weak_put_uper = avg > upper_1 and upper_1[1] < upper_1 and ta.crossunder(open, avg)
+if weak_put_uper or weak_put_uper[1]
+    shortCondition4 := false
+
+shortCondition5 = start_short_2
+if hist_2[3] < hist_2[2] and hist_2[2] > hist_2[1] and hist_2[1] > hist_2 or is_weak_put[1] and is_weak_put and ta.crossunder(open, lower_1)
+    shortCondition5 := false
+
+shortCondition6 = shortCondition4 and bigdrop
+weak_put_uper_2 = ta.crossunder(avg, upper_1)[2] and open[1] > avg[1] and open < avg
+
+// v1.5: parenthesised OR precedence
+shortCondition7 = (o_c * 0.94 < wma13 and rsi + 8 < rsi[1]) or (rsi + 8 < rsi[1] and short)
+
+if weak_put_uper_2 or weak_put_uper_2[1]
+    shortCondition6 := false
+    shortCondition4 := false
+
+shortCondition = shortCondition1 or shortCondition3 or shortCondition4 or shortCondition5 or shortCondition6 or shortCondition7
+
+if bar_up or macd_12_26[1] < macd_12_26 or rsiMA[1] < rsiMA
+    shortCondition := false
+
+// =============== CLOSE CONDITIONS ===============
+closeLong1 = end_up_1
+closeLong2 = end_up_2
+closeLong3 = ta.crossunder(open, wma_3m_3) and not(hist[1] < hist)
+if open > avg and avg < basis
+    closeLong3 := false
+closeLong4 = hist > 0 and hist[1] > hist and not(wma_3m_3[1] < wma_3m_3)
+if open > avg and avg < basis
+    closeLong4 := false
+
+if is_up10m
+    closeLong1 := false
+    closeLong3 := false
+    closeLong4 := false
+
+closelong = closeLong1 or closeLong2 or closeLong3 or closeLong4
+
+if is_longCondition11
+    closelong := false
+
+if bottomsupport
+    closelong := false
+
+closeShort3 = profit_short
+
+if open < wma21 or is_cross_up_rsi
+    closeShort2 := false
+if is_cross_down_basis and is_cross_down_lower_1 and open < lower_1 and avg[1] > avg
+    closeShort1 := false
+if is_cross_down_basis and open < avg and avg[1] > avg
+    closeShort3 := false
+if is_cross_down_basis and is_cross_down_lower_1 and open < lower_1 and avg[1] > avg
+    closeShort3 := false
+
+closeshort = closeShort1 or closeShort2 or closeShort3
+if open < open[1]
+    closeshort := false
+
+// =============== REGIME FILTER (raise win-rate: only trade WITH the HTF trend) ===============
+// Fully no-repaint: every HTF series is read with [1] (last CLOSED higher-TF bar).
+useRegime   = input.bool(true,        'HTF Trend Filter',     group = 'Regime')
+regimeTF    = input.timeframe('15',   'Regime Timeframe',     group = 'Regime')
+regimeLen   = input.int(50, 'Regime EMA Length', minval = 5,  group = 'Regime')
+regimeSlope = input.bool(true,        'Require EMA Slope',    group = 'Regime')
+
+emaRegime = ta.ema(close, regimeLen)
+emaUpRaw  = emaRegime > emaRegime[1]
+htfEma    = request.security(syminfo.tickerid, regimeTF, emaRegime[1], lookahead = barmerge.lookahead_off)
+htfClose  = request.security(syminfo.tickerid, regimeTF, close[1],     lookahead = barmerge.lookahead_off)
+htfUp     = request.security(syminfo.tickerid, regimeTF, emaUpRaw[1],   lookahead = barmerge.lookahead_off)
+
+regimeUp   = htfClose > htfEma and (not regimeSlope or htfUp)
+regimeDown = htfClose < htfEma and (not regimeSlope or not htfUp)
+
+allowLong  = not useRegime or regimeUp
+allowShort = not useRegime or regimeDown
+
+// =============== ENTRIES + RISK ===============
+var float peakClose   = na   // highest close since long entry  (for trailing)
+var float troughClose = na   // lowest  close since short entry (for trailing)
+
+if longCondition and not lock_time and allowLong
+    strategy.entry('call', strategy.long)
+    is_longCondition11 := false
+    peakClose := close
+
+if shortCondition and not lock_time and allowShort
+    strategy.entry('put', strategy.short)
+    troughClose := close
+
+// track running extreme while in position
+if strategy.position_size > 0
+    peakClose := na(peakClose) ? close : math.max(peakClose, close)
+if strategy.position_size < 0
+    troughClose := na(troughClose) ? close : math.min(troughClose, close)
+
+// REAL fixed TP from entry + optional trailing stop (symmetric)
+entryPx = strategy.position_avg_price
+longTake   = entryPx * (1 + takePerc)
+shortTake  = entryPx * (1 - takePerc)
+longStop   = entryPx * (1 - stopPerc)
+shortStop  = entryPx * (1 + stopPerc)
+
+if useTrail
+    if strategy.position_size > 0 and high >= entryPx * (1 + trailActivate)
+        longStop := math.max(longStop, nz(peakClose, close) * (1 - trailPerc))
+    if strategy.position_size < 0 and low <= entryPx * (1 - trailActivate)
+        shortStop := math.min(shortStop, nz(troughClose, close) * (1 + trailPerc))
+
+// discretionary closes first, then bracket (TP + stop)
+// useSignalExit = false -> ignore signal exits and let the trade ride the trailing stop
+if useSignalExit and strategy.position_size > 0 and closelong
+    strategy.close('call')
+if useSignalExit and strategy.position_size < 0 and closeshort
+    strategy.close('put')
+
+if strategy.position_size > 0
+    strategy.exit('call', stop = longStop, limit = useTake ? longTake : na)
+if strategy.position_size < 0
+    strategy.exit('put', stop = shortStop, limit = useTake ? shortTake : na)
+
+// =============== PLOTS ===============
+plotshape(longCondition and not lock_time and allowLong ? low1d * 0.997 : na, title = 'Buy', style = shape.triangleup, location = location.absolute, color = color.green, size = size.tiny, text = 'BUY', textcolor = color.green)
+plotshape(shortCondition and not lock_time and allowShort ? low1d * 0.997 : na, title = 'Sell', style = shape.triangledown, location = location.absolute, color = color.red, size = size.tiny, text = 'SELL', textcolor = color.red)
+
+// ============================================================
+// v1.7 ALERTS FOR AUTO TRADE (Tradovate via webhook)
+// ============================================================
+alertcondition(longCondition and not lock_time and allowLong, title = 'V1.7 BUY Signal', message = '{"action":"buy","symbol":"{{ticker}}","qty":1,"price":{{close}},"tf":"1m"}')
+alertcondition(shortCondition and not lock_time and allowShort, title = 'V1.7 SELL Signal', message = '{"action":"sell","symbol":"{{ticker}}","qty":1,"price":{{close}},"tf":"1m"}')
+alertcondition(closelong and strategy.position_size > 0, title = 'V1.7 CLOSE LONG', message = '{"action":"closeLong","symbol":"{{ticker}}","price":{{close}}}')
+alertcondition(closeshort and strategy.position_size < 0, title = 'V1.7 CLOSE SHORT', message = '{"action":"closeShort","symbol":"{{ticker}}","price":{{close}}}')
