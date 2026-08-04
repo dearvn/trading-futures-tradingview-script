@@ -1,3 +1,53 @@
+# SocSwift Chart — Real-Time Options Flow on the Chart
+
+I now trade SPX/futures using the live chart at **[trade.socswift.com](https://trade.socswift.com/dashboard/chart-dom?symbol=SPX)** — it plots institutional options flow (sweeps/blocks) directly on the price chart in real time, so you can see WHERE big money is buying calls and puts while the candle is still forming.
+
+![SocSwift SPX chart with flow marks](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/socswift-chart.png?raw=true "SocSwift SPX 1m with 0DTE flow marks")
+<!-- save your SPX chart screenshot as socswift-chart.png in the repo root -->
+
+## What is on the chart
+
+| Element | Meaning |
+|---------|---------|
+| Candlesticks + Volume | Standard OHLCV, down to **30-second** bars |
+| **VWAP** | Volume-weighted average price for the session |
+| **EMA 21** | 21-period exponential moving average (blue line) — my trend filter |
+| **Flow marks** | Real-time options sweeps printed at the price/time they hit the tape |
+| **GEX levels** | Dealer gamma-exposure levels (support/resistance magnets) — toggle button on the toolbar |
+| **DOM box** | Live price ladder for one option contract (bid/ask depth) |
+| Current price line | Red dotted line with countdown to bar close |
+
+## How to read a flow mark
+
+Example: `▲ C7600 ASK 0DTE $1.2M`
+
+- `▲` green / `▼` red — direction of the aggressor (lifting the ask = buying, hitting the bid = selling)
+- `C7600` / `P7600` — **C**all or **P**ut at strike 7600
+- `ASK` / `BID` — side the order executed on. Calls bought at ASK = bullish; Puts bought at ASK = bearish
+- `0DTE` — days to expiration (0DTE = expires today; the fastest, most aggressive flow)
+- `$1.2M` — total premium paid. Bigger premium = more conviction
+
+**How I use it:** when a cluster of green `C... ASK` marks stacks up while price holds above VWAP/EMA 21, that is institutional call buying confirming the trend — I follow it. Red `P... ASK` clusters near highs warn me a reversal is being bought.
+
+## Chart features
+
+- **Timeframes:** 30s, 1m, 3m, 5m, 15m, Daily, Weekly (seconds bars are streamed live — great for 0DTE scalping)
+- **Multi-chart layouts:** 1 / 2 / 3 / 4 panes, each pane with its own symbol, timeframe, and indicators
+- **Drawing tools:** trendline, brush (smoothed), fibonacci, rectangle, text, with magnet/snap mode — drawings are saved server-side per user, so they survive reload and follow you across devices
+- **Watchlist** with live prices, and an alert sound when unusually large flow prints
+- **GEX levels / Flow marks toggles** on the top toolbar to declutter the chart
+
+## How to register
+
+1. Go to **https://trade.socswift.com** and click **Sign Up** (email + password, then verify your email)
+2. Log in → open **Dashboard → Billing** and start a plan (a trial is available for new accounts)
+3. Open **Dashboard → Chart** (chart-dom), pick a symbol (SPX, SPY, QQQ, NQ, ES-related tickers, big caps…)
+4. Turn on **Flow marks** and **GEX levels** in the toolbar and pick your timeframe
+
+Questions or a custom indicator/bot: donald.nguyen.it@gmail.com
+
+---
+
 # Management members on TradingView and the Discord channel on your website.
 https://www.patreon.com/donaldit/shop/manage-members-on-tradingview-discord-415211
 
