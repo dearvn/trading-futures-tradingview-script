@@ -1,6 +1,8 @@
 # SocSwift Chart — Real-Time Options Flow on the Chart
 
-I now trade SPX/futures using the live chart at **[trade.socswift.com](https://trade.socswift.com/dashboard/chart-dom?symbol=SPX)** — it plots institutional options flow (sweeps/blocks) directly on the price chart in real time, so you can see WHERE big money is buying calls and puts while the candle is still forming.
+I now trade **SPX options** using the live chart at **[trade.socswift.com](https://trade.socswift.com/dashboard/chart-dom?symbol=SPX)** — it plots institutional options flow (sweeps/blocks) directly on the price chart in real time, so you can see WHERE big money is buying calls and puts while the candle is still forming.
+
+**Important:** this chart does NOT give buy/sell signals. It gives **context** — the raw institutional flow. You read that context to understand the trend, then decide your own CALL or PUT entry by following what the big players are doing.
 
 ![SocSwift SPX chart with flow marks](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/socswift-chart.png?raw=true "SocSwift SPX 1m with 0DTE flow marks")
 <!-- save your SPX chart screenshot as socswift-chart.png in the repo root -->
@@ -27,7 +29,7 @@ Example: `▲ C7600 ASK 0DTE $1.2M`
 - `0DTE` — days to expiration (0DTE = expires today; the fastest, most aggressive flow)
 - `$1.2M` — total premium paid. Bigger premium = more conviction
 
-**How I use it:** when a cluster of green `C... ASK` marks stacks up while price holds above VWAP/EMA 21, that is institutional call buying confirming the trend — I follow it. Red `P... ASK` clusters near highs warn me a reversal is being bought.
+**How I use it:** the marks are context, not signals. When a cluster of green `C... ASK` marks stacks up while price holds above VWAP/EMA 21, that is institutional call buying confirming the trend — I enter a CALL and ride with the big players. Red `P... ASK` clusters near highs tell me a reversal is being bought — I stay out or look for a PUT entry. No mark by itself is an entry; the confluence of flow + trend is.
 
 ## Chart features
 
@@ -41,7 +43,7 @@ Example: `▲ C7600 ASK 0DTE $1.2M`
 
 1. Go to **https://trade.socswift.com** and click **Sign Up** (email + password, then verify your email)
 2. Log in → open **Dashboard → Billing** and start a plan (a trial is available for new accounts)
-3. Open **Dashboard → Chart** (chart-dom), pick a symbol (SPX, SPY, QQQ, NQ, ES-related tickers, big caps…)
+3. Open **Dashboard → Chart** (chart-dom), pick a symbol (SPX, SPY, QQQ, and other big-cap optionable tickers…)
 4. Turn on **Flow marks** and **GEX levels** in the toolbar and pick your timeframe
 
 Questions or a custom indicator/bot: donald.nguyen.it@gmail.com
