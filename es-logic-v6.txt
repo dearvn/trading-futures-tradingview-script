@@ -1,0 +1,1620 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SPX / ES — MIDNIGHT BOX + SNAG LOGIC  ·  v6
+//
+//  An intraday overlay for SPX / ES futures combining four independent reads:
+//    · Midnight range box (00:00–06:00 local) with high / mid / low rails and
+//      an "absolute entry" rejection signal at either edge.
+//    · RTH open range (±15 / ±30 / ±60) plus the pre-10:15 high / low levels.
+//    · A confirmed VWAP 30-point projection box with a colour-coded VWAP
+//      trend line and a live VWAP + RSI dashboard.
+//    · The Snag call/put engine: a 13-minute WMA trend state machine feeding
+//      10-minute VWMA entry rails with trailing stops and exit signals.
+//  Everything is non-repainting: higher-timeframe data is read with
+//  lookahead_off, so a bar never sees data that did not exist at its close.
+//
+//  Full changelog at the bottom of this file.
+//
+//  This source code is subject to the terms of the Mozilla Public License 2.0
+//  at https://mozilla.org/MPL/2.0/
+//
+//  Original v5 "SPX Midnight Box + Snag Logic"  © thinhdangho
+//  v6 rewrite (Pine v6 port, look-ahead / DST / drawing-budget fixes,
+//  diagnostics, alert conditions, status panel)  © Doan, 2026
+//  Gaussian Adaptive MA  © LeafAlgo — https://www.tradingview.com/v/th7NZUPM/
+// ═══════════════════════════════════════════════════════════════════════════════
+
+indicator("SPX Midnight Box + Snag Logic v6", overlay = true, max_bars_back = 4999, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  0.  INPUT GROUPS
+// ═══════════════════════════════════════════════════════════════════════════════
+G_SESS  = "1 · Session & Midnight Box"
+G_LVL   = "2 · Open / 10:15 Levels"
+G_VWAP  = "3 · VWAP 30-Point Box"
+G_RSI   = "4 · RSI Panel"
+G_ALMA  = "5 · ALMA Smoothing"
+G_GAMA  = "6 · Gaussian Adaptive MA"
+G_HTF   = "7 · Higher-Timeframe WMA Trend"
+G_SR    = "8 · Pivot Support / Resistance"
+G_BAR   = "9 · Candle Colors"
+G_ENG   = "10 · Snag Call/Put Engine"
+G_DIAG  = "11 · Diagnostics (optional marks)"
+G_ALERT = "12 · Webhook Alert"
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  1.  GENERIC HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Safe division: returns na instead of inf / 0-divide garbage.
+f_div(float nom, float den) =>
+    na(den) or den == 0 ? float(na) : nom / den
+
+f_percent(float nom, float den) =>
+    100 * nz(f_div(nom, den))
+
+f_roundUp(float number, int decimals) =>
+    factor = math.pow(10, decimals)
+    math.ceil(number * factor) / factor
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  2.  SESSION / TIME
+//      v6 fix: every session test now uses one IANA timezone. The v5 script
+//      mixed "America/Los_Angeles", "UTC-8" and "UTC-7", so half the session
+//      windows were one hour off for ~8 months of the year (DST).
+// ═══════════════════════════════════════════════════════════════════════════════
+tz         = input.string("America/Los_Angeles", "Session Timezone", options = ["America/Los_Angeles", "America/New_York", "America/Chicago", "UTC"], group = G_SESS)
+entryTol   = input.float(2.0, "Absolute Entry Tolerance", step = 0.25, group = G_SESS)
+showEMAs   = input.bool(true, "Show EMAs", group = G_SESS)
+
+showOpenLevels = input.bool(true, "Show Open Range Levels", group = G_LVL)
+show1015Levels = input.bool(true, "Show 10:15 Levels", group = G_LVL)
+
+// Bar-open clock (drives the daily reset and the level drawings)
+hOpen = hour(time, tz)
+mOpen = minute(time, tz)
+
+// Bar-close clock (drives session snapshots and the webhook alert)
+hCls = hour(time_close, tz)
+mCls = minute(time_close, tz)
+
+curYear  = year(time, tz)
+curMonth = month(time, tz)
+curDay   = dayofmonth(time, tz)
+
+dayKey = curYear * 10000 + curMonth * 100 + curDay
+newDay = barstate.isfirst or dayKey != dayKey[1]
+
+isOpenBar = hOpen == 6 and mOpen == 30
+inFirst45 = (hOpen == 6 and mOpen >= 30) or (hOpen == 7 and mOpen < 15)
+
+pre1015   = hOpen < 10 or (hOpen == 10 and mOpen < 15)
+post1015  = hOpen == 10 and mOpen >= 15 and mOpen <= 55
+is1015Bar = hOpen == 10 and mOpen == 15
+
+// Daily time anchors
+rangeStart = timestamp(tz, curYear, curMonth, curDay, 0, 0, 1)
+rangeEnd   = timestamp(tz, curYear, curMonth, curDay, 6, 0, 1)
+endTime    = timestamp(tz, curYear, curMonth, curDay, 13, 0, 0)   // also used for badges
+
+inMidnightRange    = time_close >= rangeStart and time <= rangeEnd
+startMidnightRange = inMidnightRange and not inMidnightRange[1]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  3.  VISIBLE-CHART HIGH / LOW  (native — replaces the PineCoders imports)
+//      The v5 script imported PineCoders/VisibleChart TWICE (v4 unaliased and
+//      v2 as pcVC) plus PineCoders/Time which was never used at all.
+// ═══════════════════════════════════════════════════════════════════════════════
+var float visLow = na
+
+inVisible = time >= chart.left_visible_bar_time and time <= chart.right_visible_bar_time
+if inVisible
+    visLow := na(visLow) ? low : math.min(visLow, low)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  4.  CHART-TIMEFRAME MOVING AVERAGES
+//      v5 computed ta.wma(close, 200) twice (ma200 and wma_200) and
+//      ta.wma(close, 11 / 48) twice each. De-duplicated here.
+// ═══════════════════════════════════════════════════════════════════════════════
+ema18 = ta.ema(close, 18)
+ema50 = ta.ema(close, 50)
+ema3  = ta.ema(close, 3)
+
+wma11_c  = ta.wma(close, 11)
+wma48_c  = ta.wma(close, 48)
+wma200_c = ta.wma(close, 200)
+
+ema18Up = ema18 > ema18[1]
+ema18Dn = ema18 < ema18[1]
+
+plot(showEMAs ? ema18 : na, title = "EMA 18", color = ema18Up ? color.green : color.red, linewidth = 2)
+plot(showEMAs ? ema50 : na, title = "EMA 50", color = color.blue, linewidth = 2)
+
+showChartWMAs = input.bool(true, "Plot chart-timeframe WMA 11 / 48 / 200", group = G_HTF)
+plot(showChartWMAs ? wma11_c  : na, title = "WMA 11",  color = color.white)
+plot(showChartWMAs ? wma48_c  : na, title = "WMA 48",  color = color.orange)
+plot(showChartWMAs ? wma200_c : na, title = "WMA 200", color = color.orange)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  5.  HIGHER-TIMEFRAME REQUESTS  —  NO-REPAINT
+//      v5 called request.security(..., lookahead = barmerge.lookahead_on) on
+//      *intraday* expressions with no history offset. On historical bars that
+//      returns the FINAL value of an HTF bar that had not closed yet, so every
+//      13m / 15m / 10m / 2m signal below was reading the future. Backtests
+//      looked perfect and live trading did not match.
+//
+//      f_htf() uses lookahead_off, so a chart bar only ever sees higher-
+//      timeframe data that already existed at that point in time. History is
+//      then fixed, and the live bar develops and settles at its close, which
+//      is what a live indicator should do.
+//      "Strict HTF" additionally drops the forming HTF bar: values never move
+//      intrabar, at the cost of one extra HTF bar of lag.
+// ═══════════════════════════════════════════════════════════════════════════════
+strictHTF = input.bool(false, "Strict HTF (ignore the forming HTF bar)", group = G_HTF, tooltip = "OFF = the live higher-timeframe bar develops during the session. Non-repainting on history.\nON  = only fully closed higher-timeframe bars are used. Nothing moves intrabar, but signals lag by one HTF bar.")
+htfOff = strictHTF ? 1 : 0
+
+f_htf(simple string tf, float expr) =>
+    request.security(syminfo.tickerid, tf, expr[htfOff], lookahead = barmerge.lookahead_off)
+
+// 10-minute
+open_10  = f_htf("10", open)
+close_10 = f_htf("10", close)
+wma11_10 = f_htf("10", wma11_c)
+wma48_10 = f_htf("10", wma48_c)
+
+// 13-minute (the trend engine)
+close_13  = f_htf("13", close)
+wma11_13  = f_htf("13", wma11_c)
+wma48_13  = f_htf("13", wma48_c)
+wma200_13 = f_htf("13", wma200_c)
+
+// 15-minute
+close_15  = f_htf("15", close)
+open_15   = f_htf("15", open)
+wma200_15 = f_htf("15", wma200_c)
+
+// 2-minute
+close_2  = f_htf("2", close)
+wma200_2 = f_htf("2", wma200_c)
+
+// Daily — high[1]/close[1] with lookahead_on is already the safe idiom
+// (the previous, completed daily bar), so no extra offset is applied.
+highest_1d = request.security(syminfo.tickerid, "D", high[1],  lookahead = barmerge.lookahead_on)
+// v5 bug: close_1d requested `close` (not close[1]) on the daily timeframe with
+// lookahead_on, i.e. today's not-yet-known settlement. Fixed to close[1].
+close_1d   = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_on)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  6.  RSI
+// ═══════════════════════════════════════════════════════════════════════════════
+rsiPanelLength = input.int(14, "RSI Panel Length", minval = 1, group = G_RSI)
+rsiPanelValue  = ta.rsi(close, rsiPanelLength)
+rsiPanelChange  = not na(rsiPanelValue[1]) ? rsiPanelValue - rsiPanelValue[1] : na
+rsiPanelChange6 = not na(rsiPanelValue[6]) ? rsiPanelValue - rsiPanelValue[6] : na
+rsiPanelRising  = not na(rsiPanelValue[1]) and rsiPanelValue > rsiPanelValue[1]
+rsiPanelFalling = not na(rsiPanelValue[1]) and rsiPanelValue < rsiPanelValue[1]
+rsiPanelStatus = rsiPanelValue >= 70 ? "OVERBOUGHT" : rsiPanelValue <= 30 ? "OVERSOLD" : rsiPanelValue >= 55 and rsiPanelRising ? "BULLISH RISING" : rsiPanelValue >= 50 ? "BULLISH" : rsiPanelValue <= 45 and rsiPanelFalling ? "BEARISH FALLING" : rsiPanelValue < 50 ? "BEARISH" : "NEUTRAL"
+rsiPanelColor  = rsiPanelValue >= 70 ? color.orange : rsiPanelValue <= 30 ? color.aqua : rsiPanelRising ? color.lime : rsiPanelFalling ? color.red : color.gray
+
+// Fast RSI used by the Snag engine
+rsi     = ta.rsi(close, 9)
+rsi_15  = f_htf("15", rsi)
+rsi_2   = f_htf("2", rsi)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  7.  STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+var float dayOpen      = na
+var bool  callStrong   = false
+var bool  putStrong    = false
+var bool  strongLocked = false
+var bool  putNow       = false
+var bool  callNow      = false
+var float highPre1015  = na
+var float lowPre1015   = na
+
+var float boxHigh = na
+var float boxLow  = na
+var float boxMid  = na
+
+var box   midnightBox     = na
+var line  midnightHiLine  = na
+var line  midnightLoLine  = na
+var line  midnightMidLine = na
+var label highBadge       = na
+var label lowBadge        = na
+var label midBadge        = na
+
+var bool  absCallFired  = false
+var bool  absPutFired   = false
+var float absCallLevel  = na
+var float absPutLevel   = na
+var label absEntryLabel = na
+
+var line  openLine     = na
+var line  up15Line     = na
+var line  dn15Line     = na
+var line  up30Line     = na
+var line  dn30Line     = na
+var line  up60Line     = na
+var line  dn60Line     = na
+var line  high1015Line = na
+var line  low1015Line  = na
+var label dirLabel     = na
+
+var table rightPanel = table.new(position.middle_right, 1, 3, border_width = 1)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  8.  VWAP CONFIRMED 30-POINT BOX
+// ═══════════════════════════════════════════════════════════════════════════════
+showVWAPBoxes           = input.bool(true, "Show VWAP Confirmed 30-Point Box", group = G_VWAP)
+vwapBoxPoints           = input.float(30.0, "VWAP Box Points", step = 0.25, group = G_VWAP)
+vwapSrc                 = input.source(hlc3, "VWAP Source", group = G_VWAP)
+showVWAPTrendLine       = input.bool(true, "Show VWAP Green/Orange/Red Trend Line", group = G_VWAP)
+vwapTrendKeepBars       = input.int(250, "VWAP Trend Line History Bars", minval = 25, maxval = 400, group = G_VWAP, tooltip = "Each bar of trend line costs one line object. The chart hard limit is 500 lines total; the S/R block below needs 6 more.")
+vwapStrongDownThreshold = input.float(3.0, "VWAP Strong Down Threshold", step = 0.25, group = G_VWAP)
+
+vwapValue = ta.vwap(vwapSrc)
+
+// Green  = VWAP rising vs prior candle
+// Orange = VWAP falling mildly
+// Red    = VWAP falling strongly over the last 6 candles
+vwapIncreasing     = not na(vwapValue[1]) and vwapValue > vwapValue[1]
+vwapDecreasing     = not na(vwapValue[1]) and vwapValue < vwapValue[1]
+vwapChangeFrom6    = not na(vwapValue[6]) ? vwapValue - vwapValue[6] : na
+vwapStrongDecrease = vwapDecreasing and not na(vwapChangeFrom6) and vwapChangeFrom6 <= -vwapStrongDownThreshold
+vwapTrendColor     = vwapIncreasing ? color.lime : vwapStrongDecrease ? color.red : vwapDecreasing ? color.orange : color.gray
+
+var array<line> vwapDashSegments = array.new<line>()
+
+if showVWAPTrendLine and not na(vwapValue) and not na(vwapValue[1])
+    line vwapSegment = line.new(bar_index - 1, vwapValue[1], bar_index, vwapValue, xloc = xloc.bar_index, extend = extend.none, color = vwapTrendColor, width = 4, style = line.style_solid)
+    array.push(vwapDashSegments, vwapSegment)
+    if array.size(vwapDashSegments) > vwapTrendKeepBars
+        line.delete(array.shift(vwapDashSegments))
+
+var box   vwapUpBox               = na
+var box   vwapDownBox             = na
+var line  vwapBoxMidLine          = na
+var label vwapBoxTopPriceLabel    = na
+var label vwapBoxMidPriceLabel    = na
+var label vwapBoxBottomPriceLabel = na
+var label vwapBottomDiffLabel     = na
+var int   vwapSide                = 0
+var float vwapCrossPrice          = na
+var float vwapPossibleTo          = na
+var float vwapBoxTopValue         = na
+var float vwapBoxMidValue         = na
+var float vwapBoxBottomValue      = na
+var table vwapValuePanel          = table.new(position.bottom_center, 1, 4, border_width = 2)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  9.  DAILY RESET
+// ═══════════════════════════════════════════════════════════════════════════════
+if newDay
+    boxHigh := na
+    boxLow  := na
+    boxMid  := na
+
+    dayOpen      := na
+    callStrong   := false
+    putStrong    := false
+    strongLocked := false
+    putNow       := false
+    callNow      := false
+    highPre1015  := na
+    lowPre1015   := na
+
+    vwapSide       := 0
+    vwapCrossPrice := na
+    vwapPossibleTo := na
+
+    absCallFired := false
+    absPutFired  := false
+    absCallLevel := na
+    absPutLevel  := na
+
+    if not na(midnightBox)
+        box.delete(midnightBox)
+        midnightBox := na
+    if not na(midnightHiLine)
+        line.delete(midnightHiLine)
+        midnightHiLine := na
+    if not na(midnightLoLine)
+        line.delete(midnightLoLine)
+        midnightLoLine := na
+    if not na(midnightMidLine)
+        line.delete(midnightMidLine)
+        midnightMidLine := na
+    if not na(highBadge)
+        label.delete(highBadge)
+        highBadge := na
+    if not na(lowBadge)
+        label.delete(lowBadge)
+        lowBadge := na
+    if not na(midBadge)
+        label.delete(midBadge)
+        midBadge := na
+    if not na(absEntryLabel)
+        label.delete(absEntryLabel)
+        absEntryLabel := na
+    if not na(openLine)
+        line.delete(openLine)
+        openLine := na
+    if not na(up15Line)
+        line.delete(up15Line)
+        up15Line := na
+    if not na(dn15Line)
+        line.delete(dn15Line)
+        dn15Line := na
+    if not na(up30Line)
+        line.delete(up30Line)
+        up30Line := na
+    if not na(dn30Line)
+        line.delete(dn30Line)
+        dn30Line := na
+    if not na(up60Line)
+        line.delete(up60Line)
+        up60Line := na
+    if not na(dn60Line)
+        line.delete(dn60Line)
+        dn60Line := na
+    if not na(high1015Line)
+        line.delete(high1015Line)
+        high1015Line := na
+    if not na(low1015Line)
+        line.delete(low1015Line)
+        low1015Line := na
+    if not na(dirLabel)
+        label.delete(dirLabel)
+        dirLabel := na
+
+    vwapBoxTopValue    := na
+    vwapBoxMidValue    := na
+    vwapBoxBottomValue := na
+
+    while array.size(vwapDashSegments) > 0
+        line.delete(array.shift(vwapDashSegments))
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 10.  MIDNIGHT RANGE  (00:00 → 06:00 local)
+// ═══════════════════════════════════════════════════════════════════════════════
+if startMidnightRange and barstate.isconfirmed
+    boxHigh := high
+    boxLow  := low
+    boxMid  := (boxHigh + boxLow) / 2.0
+
+    if not na(midnightBox)
+        box.delete(midnightBox)
+    if not na(midnightHiLine)
+        line.delete(midnightHiLine)
+    if not na(midnightLoLine)
+        line.delete(midnightLoLine)
+    if not na(midnightMidLine)
+        line.delete(midnightMidLine)
+    if not na(highBadge)
+        label.delete(highBadge)
+    if not na(lowBadge)
+        label.delete(lowBadge)
+    if not na(midBadge)
+        label.delete(midBadge)
+
+    midnightBox     := box.new(rangeStart, boxHigh, rangeEnd, boxLow, xloc = xloc.bar_time, border_color = color.orange, border_width = 2, bgcolor = color.new(color.orange, 92))
+    midnightHiLine  := line.new(rangeEnd, boxHigh, endTime, boxHigh, xloc = xloc.bar_time, color = color.gray, width = 2, style = line.style_dashed)
+    midnightLoLine  := line.new(rangeEnd, boxLow,  endTime, boxLow,  xloc = xloc.bar_time, color = color.gray, width = 2, style = line.style_dashed)
+    midnightMidLine := line.new(rangeEnd, boxMid,  endTime, boxMid,  xloc = xloc.bar_time, color = color.yellow, width = 2, style = line.style_dashed)
+
+    highBadge := label.new(endTime, boxHigh, "HIGH: " + str.tostring(boxHigh, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = color.gray,   textcolor = color.white, size = size.small)
+    lowBadge  := label.new(endTime, boxLow,  "LOW: "  + str.tostring(boxLow,  format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = color.gray,   textcolor = color.white, size = size.small)
+    midBadge  := label.new(endTime, boxMid,  "MID: "  + str.tostring(boxMid,  format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = color.yellow, textcolor = color.black, size = size.small)
+
+if inMidnightRange and barstate.isconfirmed
+    boxHigh := na(boxHigh) ? high : math.max(boxHigh, high)
+    boxLow  := na(boxLow)  ? low  : math.min(boxLow, low)
+    boxMid  := (boxHigh + boxLow) / 2.0
+
+    if not na(midnightBox)
+        box.set_left(midnightBox, rangeStart)
+        box.set_right(midnightBox, rangeEnd)
+        box.set_top(midnightBox, boxHigh)
+        box.set_bottom(midnightBox, boxLow)
+    if not na(midnightHiLine)
+        line.set_xy1(midnightHiLine, rangeEnd, boxHigh)
+        line.set_xy2(midnightHiLine, endTime, boxHigh)
+    if not na(midnightLoLine)
+        line.set_xy1(midnightLoLine, rangeEnd, boxLow)
+        line.set_xy2(midnightLoLine, endTime, boxLow)
+    if not na(midnightMidLine)
+        line.set_xy1(midnightMidLine, rangeEnd, boxMid)
+        line.set_xy2(midnightMidLine, endTime, boxMid)
+    if not na(highBadge)
+        label.set_xy(highBadge, endTime, boxHigh)
+        label.set_text(highBadge, "HIGH: " + str.tostring(boxHigh, format.mintick))
+    if not na(lowBadge)
+        label.set_xy(lowBadge, endTime, boxLow)
+        label.set_text(lowBadge, "LOW: " + str.tostring(boxLow, format.mintick))
+    if not na(midBadge)
+        label.set_xy(midBadge, endTime, boxMid)
+        label.set_text(midBadge, "MID: " + str.tostring(boxMid, format.mintick))
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 11.  RTH OPEN RESET + OPEN RANGE LEVELS
+// ═══════════════════════════════════════════════════════════════════════════════
+if isOpenBar and barstate.isconfirmed
+    dayOpen      := open
+    callStrong   := false
+    putStrong    := false
+    strongLocked := false
+    putNow       := false
+    callNow      := false
+    highPre1015  := na
+    lowPre1015   := na
+
+    // v5 deleted these lines but left the ids non-na, so later
+    // `if not na(openLine)` guards operated on dead objects.
+    if not na(openLine)
+        line.delete(openLine)
+        openLine := na
+    if not na(up15Line)
+        line.delete(up15Line)
+        up15Line := na
+    if not na(dn15Line)
+        line.delete(dn15Line)
+        dn15Line := na
+    if not na(up30Line)
+        line.delete(up30Line)
+        up30Line := na
+    if not na(dn30Line)
+        line.delete(dn30Line)
+        dn30Line := na
+    if not na(up60Line)
+        line.delete(up60Line)
+        up60Line := na
+    if not na(dn60Line)
+        line.delete(dn60Line)
+        dn60Line := na
+    if not na(high1015Line)
+        line.delete(high1015Line)
+        high1015Line := na
+    if not na(low1015Line)
+        line.delete(low1015Line)
+        low1015Line := na
+    if not na(dirLabel)
+        label.delete(dirLabel)
+        dirLabel := na
+
+hasOpen = not na(dayOpen)
+up15 = hasOpen ? dayOpen + 15 : na
+dn15 = hasOpen ? dayOpen - 15 : na
+up30 = hasOpen ? dayOpen + 30 : na
+dn30 = hasOpen ? dayOpen - 30 : na
+up60 = hasOpen ? dayOpen + 60 : na
+dn60 = hasOpen ? dayOpen - 60 : na
+
+if showOpenLevels and isOpenBar and hasOpen and barstate.isconfirmed
+    openLine := line.new(time, dayOpen, endTime, dayOpen, xloc = xloc.bar_time, color = color.white,  width = 2)
+    up15Line := line.new(time, up15,    endTime, up15,    xloc = xloc.bar_time, color = color.green,  width = 1, style = line.style_dotted)
+    dn15Line := line.new(time, dn15,    endTime, dn15,    xloc = xloc.bar_time, color = color.yellow, width = 1, style = line.style_dotted)
+    up30Line := line.new(time, up30,    endTime, up30,    xloc = xloc.bar_time, color = color.green,  width = 2)
+    dn30Line := line.new(time, dn30,    endTime, dn30,    xloc = xloc.bar_time, color = color.red,    width = 2)
+    up60Line := line.new(time, up60,    endTime, up60,    xloc = xloc.bar_time, color = color.orange, width = 2)
+    dn60Line := line.new(time, dn60,    endTime, dn60,    xloc = xloc.bar_time, color = color.purple, width = 1, style = line.style_dotted)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 12.  VWAP OUTLINE BOX
+// ═══════════════════════════════════════════════════════════════════════════════
+priceAboveVWAPConfirmed = showVWAPBoxes and barstate.isconfirmed and not na(vwapValue) and close >= vwapValue
+priceBelowVWAPConfirmed = showVWAPBoxes and barstate.isconfirmed and not na(vwapValue) and close <= vwapValue
+
+newVWAPUp   = priceAboveVWAPConfirmed and vwapSide != 1
+newVWAPDown = priceBelowVWAPConfirmed and vwapSide != -1
+
+// Single teardown for all three cases (new day, flip up, flip down). v5
+// repeated this block verbatim three times; it cannot live in a function
+// because Pine forbids assigning to globals from function scope.
+if newDay or newVWAPUp or newVWAPDown
+    if not na(vwapUpBox)
+        box.delete(vwapUpBox)
+        vwapUpBox := na
+    if not na(vwapDownBox)
+        box.delete(vwapDownBox)
+        vwapDownBox := na
+    if not na(vwapBoxMidLine)
+        line.delete(vwapBoxMidLine)
+        vwapBoxMidLine := na
+    if not na(vwapBoxTopPriceLabel)
+        label.delete(vwapBoxTopPriceLabel)
+        vwapBoxTopPriceLabel := na
+    if not na(vwapBoxMidPriceLabel)
+        label.delete(vwapBoxMidPriceLabel)
+        vwapBoxMidPriceLabel := na
+    if not na(vwapBoxBottomPriceLabel)
+        label.delete(vwapBoxBottomPriceLabel)
+        vwapBoxBottomPriceLabel := na
+    if not na(vwapBottomDiffLabel)
+        label.delete(vwapBottomDiffLabel)
+        vwapBottomDiffLabel := na
+
+if newVWAPUp
+    vwapSide := 1
+
+    vwapUpTarget       = close + vwapBoxPoints
+    vwapCrossPrice    := close
+    vwapPossibleTo    := vwapUpTarget
+    vwapBoxTopValue   := vwapUpTarget
+    vwapBoxBottomValue := close
+    vwapBoxMidValue   := (vwapBoxTopValue + vwapBoxBottomValue) / 2.0
+
+    vwapUpBox               := box.new(left = bar_index, top = vwapBoxTopValue, right = bar_index + 1, bottom = vwapBoxBottomValue, xloc = xloc.bar_index, border_color = color.lime, border_width = 3, bgcolor = color.new(color.lime, 100))
+    vwapBoxMidLine          := line.new(bar_index, vwapBoxMidValue, bar_index + 1, vwapBoxMidValue, xloc = xloc.bar_index, extend = extend.none, color = color.yellow, width = 2, style = line.style_dashed)
+    vwapBoxTopPriceLabel    := label.new(bar_index + 1, vwapBoxTopValue,    "VWAP TOP: "    + str.tostring(vwapBoxTopValue,    format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = color.lime,   textcolor = color.black, size = size.small)
+    vwapBoxMidPriceLabel    := label.new(bar_index + 1, vwapBoxMidValue,    "VWAP MID: "    + str.tostring(vwapBoxMidValue,    format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = color.yellow, textcolor = color.black, size = size.small)
+    vwapBoxBottomPriceLabel := label.new(bar_index + 1, vwapBoxBottomValue, "VWAP BOTTOM: " + str.tostring(vwapBoxBottomValue, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = color.green,  textcolor = color.white, size = size.small)
+
+if newVWAPDown
+    vwapSide := -1
+
+    vwapDownTarget      = close - vwapBoxPoints
+    vwapCrossPrice     := close
+    vwapPossibleTo     := vwapDownTarget
+    vwapBoxTopValue    := close
+    vwapBoxBottomValue := vwapDownTarget
+    vwapBoxMidValue    := (vwapBoxTopValue + vwapBoxBottomValue) / 2.0
+
+    vwapDownBox             := box.new(left = bar_index, top = vwapBoxTopValue, right = bar_index + 1, bottom = vwapBoxBottomValue, xloc = xloc.bar_index, border_color = color.red, border_width = 3, bgcolor = color.new(color.red, 100))
+    vwapBoxMidLine          := line.new(bar_index, vwapBoxMidValue, bar_index + 1, vwapBoxMidValue, xloc = xloc.bar_index, extend = extend.none, color = color.yellow, width = 2, style = line.style_dashed)
+    vwapBoxTopPriceLabel    := label.new(bar_index + 1, vwapBoxTopValue,    "VWAP TOP: "    + str.tostring(vwapBoxTopValue,    format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = color.red,    textcolor = color.white, size = size.small)
+    vwapBoxMidPriceLabel    := label.new(bar_index + 1, vwapBoxMidValue,    "VWAP MID: "    + str.tostring(vwapBoxMidValue,    format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = color.yellow, textcolor = color.black, size = size.small)
+    vwapBoxBottomPriceLabel := label.new(bar_index + 1, vwapBoxBottomValue, "VWAP BOTTOM: " + str.tostring(vwapBoxBottomValue, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = color.red,    textcolor = color.white, size = size.small)
+
+// Keep the active box / mid line / price tags flowing with the current candle.
+if not na(vwapUpBox)
+    box.set_right(vwapUpBox, bar_index)
+if not na(vwapDownBox)
+    box.set_right(vwapDownBox, bar_index)
+
+if not na(vwapBoxMidLine) and not na(vwapBoxMidValue)
+    line.set_x2(vwapBoxMidLine, bar_index)
+    line.set_y1(vwapBoxMidLine, vwapBoxMidValue)
+    line.set_y2(vwapBoxMidLine, vwapBoxMidValue)
+if not na(vwapBoxTopPriceLabel) and not na(vwapBoxTopValue)
+    label.set_xy(vwapBoxTopPriceLabel, bar_index + 1, vwapBoxTopValue)
+    label.set_text(vwapBoxTopPriceLabel, "VWAP TOP: " + str.tostring(vwapBoxTopValue, format.mintick))
+if not na(vwapBoxMidPriceLabel) and not na(vwapBoxMidValue)
+    label.set_xy(vwapBoxMidPriceLabel, bar_index + 1, vwapBoxMidValue)
+    label.set_text(vwapBoxMidPriceLabel, "VWAP MID: " + str.tostring(vwapBoxMidValue, format.mintick))
+if not na(vwapBoxBottomPriceLabel) and not na(vwapBoxBottomValue)
+    label.set_xy(vwapBoxBottomPriceLabel, bar_index + 1, vwapBoxBottomValue)
+    label.set_text(vwapBoxBottomPriceLabel, "VWAP BOTTOM: " + str.tostring(vwapBoxBottomValue, format.mintick))
+
+// Distance from the VWAP box bottom to price, and its 3-candle trend.
+vwapBottomDiff            = not na(vwapBoxBottomValue) ? close - vwapBoxBottomValue : na
+vwapBottomDiffAbs         = math.abs(vwapBottomDiff)
+vwapBottomDiffSign        = na(vwapBottomDiff) ? "" : vwapBottomDiff >= 0 ? "+" : "-"
+vwapBottomDiffChange3     = not na(vwapBottomDiff[3]) ? vwapBottomDiff - vwapBottomDiff[3] : na
+vwapBottomDiffChange3Abs  = math.abs(vwapBottomDiffChange3)
+vwapBottomDiffChange3Sign = na(vwapBottomDiffChange3) ? "" : vwapBottomDiffChange3 >= 0 ? "+" : "-"
+vwapBottomDiffDirection3  = na(vwapBottomDiffChange3) ? "N/A" : vwapBottomDiffChange3 > 0 ? "3C INCREASE" : vwapBottomDiffChange3 < 0 ? "3C DECREASE" : "3C FLAT"
+vwapBottomDiffText  = na(vwapBottomDiff) ? "BOTTOM VWAP DIFF: N/A" : "BOTTOM VWAP DIFF: " + vwapBottomDiffSign + str.tostring(vwapBottomDiffAbs, format.mintick) + "  |  " + vwapBottomDiffDirection3 + ": " + (na(vwapBottomDiffChange3) ? "N/A" : vwapBottomDiffChange3Sign + str.tostring(vwapBottomDiffChange3Abs, format.mintick))
+vwapBottomDiffColor = na(vwapBottomDiffChange3) ? color.gray : vwapBottomDiffChange3 > 0 ? color.lime : vwapBottomDiffChange3 < 0 ? color.red : color.orange
+vwapDiffLabelY      = close >= open ? high + 8 : low - 8
+vwapDiffLabelStyle  = close >= open ? label.style_label_down : label.style_label_up
+
+if barstate.islast and not na(vwapBottomDiff)
+    if na(vwapBottomDiffLabel)
+        vwapBottomDiffLabel := label.new(bar_index, vwapDiffLabelY, vwapBottomDiffText, xloc = xloc.bar_index, style = vwapDiffLabelStyle, color = vwapBottomDiffColor, textcolor = color.white, size = size.normal)
+    else
+        label.set_xy(vwapBottomDiffLabel, bar_index, vwapDiffLabelY)
+        label.set_text(vwapBottomDiffLabel, vwapBottomDiffText)
+        label.set_color(vwapBottomDiffLabel, vwapBottomDiffColor)
+        label.set_style(vwapBottomDiffLabel, vwapDiffLabelStyle)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 13.  BOTTOM DASHBOARD  (VWAP + RSI)
+// ═══════════════════════════════════════════════════════════════════════════════
+priceAwayFromVWAP      = close - vwapValue
+vwapSixCandleChange    = not na(vwapValue[6]) ? vwapValue - vwapValue[6] : na
+vwapSixCandleDirection = na(vwapSixCandleChange) ? "N/A" : vwapSixCandleChange > 0 ? "INCREASE" : vwapSixCandleChange < 0 ? "DECREASE" : "FLAT"
+vwapSixCandleAbs       = math.abs(vwapSixCandleChange)
+vwapSixCandleStrongDn  = not na(vwapSixCandleChange) and vwapSixCandleChange <= -vwapStrongDownThreshold
+
+if barstate.islast
+    string crossText     = na(vwapCrossPrice) ? str.tostring(close, format.mintick) : str.tostring(vwapCrossPrice, format.mintick)
+    string possibleText  = na(vwapPossibleTo) ? str.tostring(vwapValue, format.mintick) : str.tostring(vwapPossibleTo, format.mintick)
+    string awaySign      = priceAwayFromVWAP >= 0 ? "+" : ""
+    string sixSign       = na(vwapSixCandleChange) ? "" : vwapSixCandleChange > 0 ? "+" : vwapSixCandleChange < 0 ? "-" : ""
+    string sixText       = na(vwapSixCandleChange) ? "N/A" : sixSign + str.tostring(vwapSixCandleAbs, format.mintick)
+    string rsiSign       = na(rsiPanelChange)  ? "" : rsiPanelChange  > 0 ? "+" : ""
+    string rsi6Sign      = na(rsiPanelChange6) ? "" : rsiPanelChange6 > 0 ? "+" : ""
+    string rsiText       = na(rsiPanelChange)  ? "N/A" : rsiSign  + str.tostring(rsiPanelChange,  "#.##")
+    string rsi6Text      = na(rsiPanelChange6) ? "N/A" : rsi6Sign + str.tostring(rsiPanelChange6, "#.##")
+
+    string row1 = "VWAP CROSS $: " + crossText + "  |  Possible VWAP to: " + possibleText
+    string row2 = "Current VWAP: " + str.tostring(vwapValue, format.mintick) + "  |  Price Away from VWAP: " + awaySign + str.tostring(priceAwayFromVWAP, format.mintick)
+    string row3 = "VWAP Last 6 Candles: " + vwapSixCandleDirection + "  |  Change: " + sixText
+    string row4 = "RSI(" + str.tostring(rsiPanelLength) + "): " + str.tostring(rsiPanelValue, "#.##") + "  |  Status: " + rsiPanelStatus + "  |  1-Bar: " + rsiText + "  |  6-Bar: " + rsi6Text
+
+    color panelBg   = vwapSide == 1 ? color.lime : vwapSide == -1 ? color.red : color.aqua
+    color awayColor = priceAwayFromVWAP >= 0 ? color.lime : color.red
+    color sixColor  = na(vwapSixCandleChange) ? color.white : vwapSixCandleChange > 0 ? color.lime : vwapSixCandleStrongDn ? color.red : vwapSixCandleChange < 0 ? color.orange : color.gray
+
+    table.cell(vwapValuePanel, 0, 0, row1, text_color = color.black, bgcolor = panelBg,     text_size = size.large)
+    table.cell(vwapValuePanel, 0, 1, row2, text_color = awayColor,   bgcolor = color.black, text_size = size.large)
+    table.cell(vwapValuePanel, 0, 2, row3, text_color = sixColor,    bgcolor = color.black, text_size = size.large)
+    table.cell(vwapValuePanel, 0, 3, row4, text_color = rsiPanelColor, bgcolor = color.black, text_size = size.large)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 14.  MORNING HIGH / LOW BEFORE 10:15
+// ═══════════════════════════════════════════════════════════════════════════════
+if pre1015 and barstate.isconfirmed
+    highPre1015 := na(highPre1015) ? high : math.max(highPre1015, high)
+    lowPre1015  := na(lowPre1015)  ? low  : math.min(lowPre1015, low)
+
+if show1015Levels and is1015Bar and barstate.isconfirmed and not na(highPre1015) and not na(lowPre1015)
+    high1015Line := line.new(time, highPre1015, endTime, highPre1015, xloc = xloc.bar_time, color = color.red,   width = 2)
+    low1015Line  := line.new(time, lowPre1015,  endTime, lowPre1015,  xloc = xloc.bar_time, color = color.green, width = 2)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 15.  ALMA SMOOTHING + GAUSSIAN ADAPTIVE MA  (C-CF / P signals)
+// ═══════════════════════════════════════════════════════════════════════════════
+src_sm  = input.source(close, "Source", group = G_ALMA)
+smooth  = input.int(1,  "Smoothing", minval = 1, group = G_ALMA)
+length1 = input.int(25, "Lookback",  minval = 1, group = G_ALMA)
+almaOffset = 0.85
+almaSigma  = 7
+pchange   = f_percent(ta.change(src_sm, smooth), src_sm)
+avpchange = ta.alma(pchange, length1, almaOffset, almaSigma)
+
+// GAMA — credit © LeafAlgo, https://www.tradingview.com/v/th7NZUPM/
+gamaLength     = input.int(14, "Length", minval = 1, group = G_GAMA)
+gamaAdaptive   = input.bool(true, "Adaptive Parameters", group = G_GAMA)
+volatilityPeriod = input.int(20, "Volatility Period", minval = 1, group = G_GAMA)
+// v5 declared this input inside a ternary branch. Inputs must live at top level.
+gamaFixedSigma = input.float(1.0, "Standard Deviation (non-adaptive)", minval = 0.1, group = G_GAMA)
+
+gmaSigma = gamaAdaptive ? ta.stdev(close, volatilityPeriod) : gamaFixedSigma
+// Guard: a flat close series makes stdev 0 → division by zero in the weight.
+gmaSigmaSafe = math.max(nz(gmaSigma), 1e-10)
+
+float gma = 0.0
+float sumOfWeights = 0.0
+for i = 0 to gamaLength - 1
+    weight = math.exp(-math.pow((i - (gamaLength - 1)) / (2 * gmaSigmaSafe), 2) / 2)
+    value  = ta.highest(avpchange, i + 1) + ta.lowest(avpchange, i + 1)
+    gma := gma + (value * weight)
+    sumOfWeights := sumOfWeights + weight
+
+gma := nz(f_div(gma, sumOfWeights)) / 2
+gma := ta.ema(gma, 7)
+
+almaBuy  = ta.crossover(avpchange, gma)  and barstate.isconfirmed
+almaSell = ta.crossunder(avpchange, gma) and barstate.isconfirmed
+
+plotshape(almaBuy,  "Buy Signal",  text = "C-CF", textcolor = color.white, style = shape.labelup,   location = location.belowbar, color = color.rgb(0, 161, 5),  offset = -1)
+plotshape(almaSell, "Sell Signal", text = "P",    textcolor = color.white, style = shape.labeldown, location = location.abovebar, color = color.rgb(215, 0, 0), offset = -1)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 16.  10-MINUTE VWMA BANDS  (uper_10 / lower_10 — the engine's entry rails)
+// ═══════════════════════════════════════════════════════════════════════════════
+cross_up_point   = input.float(10.0, "Strong S/R Cross Up Points",   minval = 1, maxval = 50, group = G_SR)
+cross_down_point = input.float(10.0, "Strong S/R Cross Down Points", minval = 1, maxval = 50, group = G_SR)
+bandMult = input.float(3.0, "VWMA Band Multiplier", minval = 0.001, maxval = 50, group = G_ENG)
+
+basis3 = ta.vwma(open_10, 50)
+dev3   = bandMult * ta.stdev(open_10, 50)
+upper3_6 = basis3 + dev3
+lower3_6 = basis3 - dev3
+uper_10  = (upper3_6 + basis3) / 2
+lower_10 = (lower3_6 + basis3) / 2
+
+// v5 spelled this as a 10-term manual average; ta.sma is identical and cheaper.
+avg_open  = ta.sma(open, 10)
+avg_wma21 = ta.wma(avg_open, 21)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 17.  PIVOTS (running support / resistance)
+// ═══════════════════════════════════════════════════════════════════════════════
+point_lb = input.int(4, "Pivot Left Bars",  minval = 1, group = G_SR)
+point_rb = input.int(4, "Pivot Right Bars", minval = 1, group = G_SR)
+rb       = input.int(5, "Plot Offset Bars", minval = 1, group = G_SR)
+
+point_ph = ta.pivothigh(point_lb, point_rb)
+point_pl = ta.pivotlow(point_lb, point_rb)
+
+var float running_ph = na
+var float running_pl = na
+
+// v6: int/float no longer auto-cast to bool, so `if point_ph` is a compile
+// error. Explicit na test.
+if not na(point_ph)
+    running_ph := point_ph
+if not na(point_pl)
+    running_pl := point_pl
+
+plot(running_ph, title = "R", style = plot.style_circles, linewidth = 2, color = color.white,  offset = -rb)
+plot(running_pl, title = "S", style = plot.style_circles, linewidth = 2, color = color.purple, offset = -rb)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 18.  13-MINUTE TREND STATE MACHINE
+// ═══════════════════════════════════════════════════════════════════════════════
+up10m   = false
+up10m_2 = false
+down10m   = false
+down10m_2 = false
+
+if close_10 + 3 > wma11_10
+    up10m_2 := true
+if close_10 - 3 < wma11_10
+    down10m_2 := true
+if close_10 > wma11_10
+    up10m   := true
+    up10m_2 := false
+if close_10 < wma11_10
+    down10m   := true
+    down10m_2 := false
+
+crossUpWMA13   = ta.crossover(close_13,  wma11_13)
+crossDownWMA13 = ta.crossunder(close_13, wma11_13)
+crossUpWMA48   = ta.crossover(close_13,  wma48_13)
+crossDownWMA48 = ta.crossunder(close_13, wma48_13)
+crossUpWMA200   = ta.crossover(close_13,  wma200_13)
+crossDownWMA200 = ta.crossunder(close_13, wma200_13)
+
+crossUpWMA13_48   = ta.crossover(wma11_13,  wma48_13)
+crossDownWMA13_48 = ta.crossunder(wma11_13, wma48_13)
+crossUpWMA48_200   = ta.crossover(wma48_13,  wma200_13)
+crossDownWMA48_200 = ta.crossunder(wma48_13, wma200_13)
+
+// Chart-timeframe 11/48 cross (used by the big-reverse filter)
+var bool crossup11_48   = false
+var bool crossdown11_48 = false
+var int  cnt_out_up     = 0
+if ta.crossover(wma11_c, wma48_c)
+    crossup11_48   := true
+    crossdown11_48 := false
+    cnt_out_up     := 0
+if ta.crossunder(wma11_c, wma48_c)
+    crossup11_48   := false
+    crossdown11_48 := true
+    cnt_out_up     := 0
+
+var bool isUpTrend   = false
+var bool isDownTrend = false
+
+if (crossUpWMA13 or crossUpWMA48 or crossUpWMA200) and not isUpTrend
+    isUpTrend   := true
+    isDownTrend := false
+if (crossDownWMA13 or crossDownWMA48 or crossDownWMA200) and not isDownTrend
+    isUpTrend   := false
+    isDownTrend := true
+
+var int trendUp   = 0
+var int trendDown = 0
+
+if isUpTrend
+    if crossUpWMA13_48
+        trendUp   := 1
+        trendDown := 0
+    if crossUpWMA48_200
+        trendUp   := 2
+        trendDown := 0
+if isDownTrend
+    if crossDownWMA13_48
+        trendUp   := 0
+        trendDown := 1
+    if crossDownWMA48_200
+        trendUp   := 0
+        trendDown := 2
+
+string txtMarkTrend = ""
+string txtOrder     = "N/A"
+if isUpTrend
+    txtMarkTrend := "Begin Up Trend"
+    if trendUp == 1
+        txtMarkTrend := "Confirm Strong Uptrend"
+        txtOrder     := "BUY"
+    else if trendUp == 2
+        txtMarkTrend := "STRONGER UPTREND"
+        txtOrder     := "BUY"
+else if isDownTrend
+    txtMarkTrend := "Begin Down Trend"
+    // v5 bug: `txtOrder := 'SELL'` was mis-indented one level out, so every
+    // down-trend bar reported SELL even before trendDown reached 1 or 2.
+    if trendDown == 1
+        txtMarkTrend := "Confirm Strong Downtrend"
+        txtOrder     := "SELL"
+    else if trendDown == 2
+        txtMarkTrend := "STRONGER DOWNTREND"
+        txtOrder     := "SELL"
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 19.  TOP / BOTTOM EXHAUSTION (WMA200 stretch + MACD)
+// ═══════════════════════════════════════════════════════════════════════════════
+pctHigh = input.float(10.0, "Highest %", group = G_DIAG)
+pctLow  = input.float(-8.0, "Lowest %",  group = G_DIAG)
+
+float pctTop    = 5.0
+float pctBottom = -5.0
+if timeframe.period == "5"
+    pctTop    := 2.5
+    pctBottom := -2.5
+else if timeframe.period == "180"
+    pctTop    := 10.0
+    pctBottom := -10.0
+else if timeframe.period == "D"
+    pctTop    := 15.0
+    pctBottom := -15.0
+
+string txtBottom = ""
+string txtTop    = ""
+bool is_bottom_wma200 = false
+bool is_top_wma200    = false
+float pct_low_wma200  = 0.0
+float pct_high_wma200 = 0.0
+if low < wma200_13
+    pct_low_wma200 := f_roundUp(f_percent(low - wma200_13, wma200_13), 2)
+    if pct_low_wma200 <= pctBottom
+        txtBottom := "BOTTOM"
+        is_bottom_wma200 := true
+else if high > wma200_13
+    pct_high_wma200 := f_roundUp(f_percent(high - wma200_13, wma200_13), 2)
+    if pct_high_wma200 >= pctTop
+        txtTop := "TOP"
+        is_top_wma200 := true
+
+is_up_rsi   = rsi - rsi[1] > 5  and ta.crossover(rsi, 40)
+is_down_rsi = rsi - rsi[1] < -7 and ta.crossunder(rsi, 70)
+
+bigdrop       = rsi + 8 < rsi[1] and close > wma48_13
+bottomsupport = not na(running_pl) and close > running_pl and close > close[1] and rsi > rsi[1] + 10
+if bigdrop
+    cnt_out_up := cnt_out_up + 1
+
+macd = ta.ema(close, 12) - ta.ema(close, 26)
+var bool is_macd_crossover  = false
+var bool is_macd_crossunder = false
+if ta.crossover(macd, -40)
+    is_macd_crossover  := true
+    is_macd_crossunder := false
+if ta.crossunder(macd, 55)
+    is_macd_crossover  := false
+    is_macd_crossunder := true
+
+highest48 = ta.highest(high, 48)
+lowest48  = ta.lowest(low, 48)
+pct_low   = f_roundUp(f_percent(close - highest48, highest48), 2)
+pct_high  = f_roundUp(f_percent(close - lowest48,  lowest48),  2)
+
+var bool is_lowest  = false
+var bool is_highest = false
+if pct_low <= pctLow and close < wma200_13
+    if f_roundUp(f_percent(close - wma200_13, wma200_13), 2) <= pctBottom and is_macd_crossover
+        is_lowest  := true
+        is_highest := false
+if close > wma200_13
+    is_lowest := false
+if pct_high >= pctHigh and close > wma200_13
+    if f_roundUp(f_percent(close - wma200_13, wma200_13), 2) >= pctTop and is_macd_crossunder
+        is_highest := true
+        is_lowest  := false
+
+is_bottom = is_lowest  and bottomsupport
+is_top    = is_highest and bigdrop
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 20.  T3-STYLE FILTER  (long / short / profit_long / profit_short)
+// ═══════════════════════════════════════════════════════════════════════════════
+t3di = (6 - 1.0) / 2.0 + 1.0
+t3c1 = 2 / (t3di + 1.0)
+t3c2 = 1 - t3c1
+t3c3 =  3.0 * (0.4 * 0.4 + 0.4 * 0.4 * 0.4)
+t3c4 = -3.0 * (2.0 * 0.4 * 0.4 + 0.4 + 0.4 * 0.4 * 0.4)
+t3c5 =  3.0 * 0.4 + 1.0 + 0.4 * 0.4 * 0.4 + 3.0 * 0.4 * 0.4
+
+var float i1 = na
+var float i2 = na
+var float i3 = na
+var float i4 = na
+var float i5 = na
+var float i6 = na
+i1 := t3c1 * close + t3c2 * nz(i1[1])
+i2 := t3c1 * i1    + t3c2 * nz(i2[1])
+i3 := t3c1 * i2    + t3c2 * nz(i3[1])
+i4 := t3c1 * i3    + t3c2 * nz(i4[1])
+i5 := t3c1 * i4    + t3c2 * nz(i5[1])
+i6 := t3c1 * i5    + t3c2 * nz(i6[1])
+cto = -0.4 * 0.4 * 0.4 * i6 + t3c3 * i5 + t3c4 * i4 + t3c5 * i3
+
+long  = (close > cto and close[1] < cto[1] and close > close[1]) or (close[1] > cto[1] and close > close[1] and close[1] < close[2] and close > ema3)
+short = (close < cto and close[1] > cto[1] and close < close[1]) or (close[1] < cto[1] and close < close[1] and close[1] > close[2] and close < ema3)
+profit_long  = close < close[1] and low  < ema3 and close[1] > ema3[1] and close[2] > ema3[2]
+profit_short = close > close[1] and high > ema3 and close[1] < ema3[1] and close[2] < ema3[2]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 21.  CANDLE PATTERNS
+// ═══════════════════════════════════════════════════════════════════════════════
+gain1 = math.abs(close - close[1])
+gain2 = math.abs(close[1] - close[2])
+gainRatio = f_div(gain1 - gain2, gain2)          // v5 divided by gain2 unguarded
+bodyPos   = f_div(close - low, high - low)       // v5 divided by (high-low) unguarded
+
+pattern_call = close[1] < close[2] and close[2] < close[3] and low <= low[1] and close >= close[1] and not na(gainRatio) and gainRatio >= 0.50 and wma11_13 > wma48_13 and not na(bodyPos) and bodyPos > 0.70
+// (high - low) - (high - close) == close - low, so v5's second branch is just
+// bodyPos < 0.25.
+pattern_put  = (close[1] > close[2] and close[2] > close[3] and high <= high[1] and close <= close[1] and not na(gainRatio) and gainRatio <= -0.5) or (not na(bodyPos) and bodyPos < 0.25 and wma11_13 < wma48_13)
+
+var int cnt_put = 0
+if pattern_put
+    cnt_put := cnt_put + 1
+if pattern_put and cnt_put == 1
+    cnt_out_up := cnt_out_up + 1
+if bottomsupport
+    cnt_put := 0
+
+call_100 = pattern_call and long
+put_100  = pattern_put and cnt_put == 1 and short
+
+// Big reverse
+oc   = math.abs(open[1] - close[1])
+hl   = math.abs(high[1] - low[1])
+ochl = nz(f_div(oc - hl, hl), 1.0)
+is_br = open[2] < close[2] and open[1] < close[1] and close < open and close[2] < close[1] and close[1] > close and ochl < 0.1 and low[3] < low[2] and low[2] < low[1]
+if is_br
+    cnt_out_up := cnt_out_up + 1
+
+is_out_up = false
+if cnt_out_up > 2
+    is_out_up  := true
+    cnt_out_up := 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 22.  CANDLE COLORS
+// ═══════════════════════════════════════════════════════════════════════════════
+showCandleColors = input.bool(true, "Enable Candle Colors", group = G_BAR)
+barColorMode     = input.string("Code 2", "Bar Color Source", options = ["Code 2", "T3 Trend"], group = G_BAR, tooltip = "'T3 Trend' uses the long/short/profit colouring that v5 computed but never applied to barcolor().")
+minBodyIntraday  = input.float(3.0, "Intraday Strong-Body Points", step = 0.25, group = G_BAR)
+minBodyHTF       = input.float(6.0, "Higher-TF Strong-Body Points", step = 0.25, group = G_BAR)
+
+vol  = volume
+bull = close > open ? vol : 0
+bear = open > close ? vol : 0
+vf_dif = ta.wma(bull, 14) - ta.wma(bear, 14)
+
+// -- T3 trend colours (previously dead code) --
+var int trend = 0
+if long
+    trend := 1
+if short
+    trend := -1
+if profit_long
+    trend := 2
+if profit_short
+    trend := -2
+
+color clr_trend = na
+var string colors = na
+if trend == 1
+    clr_trend := vf_dif > 0 ? color.rgb(67, 221, 87) : na
+    colors := "G"
+else if trend == 2
+    clr_trend := vf_dif > 0 ? color.rgb(252, 139, 74) : color.red
+    colors := "R"
+else if trend == -1
+    clr_trend := vf_dif > 0 ? color.rgb(252, 139, 74) : color.rgb(228, 201, 170)
+    colors := "O"
+else if trend == -2
+    clr_trend := vf_dif > 0 ? color.yellow : color.rgb(0, 0, 255)
+    colors := "B"
+
+var string trend_up_down = ""
+if (colors[2] == "R" or colors[2] == "O" or colors[1] == "R" or colors[1] == "O") and (colors == "B" or colors == "G") and close > close[1]
+    trend_up_down := "UP"
+if (colors[2] == "B" or colors[2] == "G" or colors[1] == "B" or colors[1] == "G") and (colors == "O" or colors == "R") and close < close[1]
+    trend_up_down := "DN"
+
+trendFlipUp = trend_up_down == "UP" and trend_up_down[1] != "UP"
+trendFlipDn = trend_up_down == "DN" and trend_up_down[1] != "DN"
+
+// -- "Code 2" colours --
+isIntradayPreset = timeframe.period == "1" or timeframe.period == "2" or timeframe.period == "5" or timeframe.period == "10" or timeframe.period == "15" or timeframe.period == "30"
+
+color clrbar = na
+bool is_up_candle   = false
+bool is_down_candle = false
+
+if isIntradayPreset
+    if (close - open) > minBodyIntraday
+        clrbar := color.rgb(40, 33, 243)
+        is_up_candle := true
+    if vol > vol[1] and close > ((high + low) * 0.50)
+        clrbar := color.rgb(102, 255, 0)
+        is_up_candle := true
+    if open >= close[1] and (close[1] - open[1] >= -1.0) and (close - open) >= 1.00
+        clrbar := color.rgb(2, 182, 2)
+        is_up_candle := true
+    if ta.crossover(close, wma200_c)
+        clrbar := color.rgb(102, 255, 0)
+        is_up_candle := true
+    if up10m and not up10m[1]
+        clrbar := color.rgb(254, 254, 252)
+        is_up_candle := true
+    if (close - open) < -minBodyIntraday or ta.crossunder(close, wma200_c)
+        clrbar := color.rgb(255, 111, 0)
+        is_down_candle := true
+    if ((close[1] - open[1] >= 1.75) and (close - open) <= -0.50) or (high[1] >= high[2] and close <= low[1])
+        clrbar := color.rgb(206, 0, 0)
+        is_down_candle := true
+    if down10m and not down10m[1]
+        clrbar := color.rgb(4, 249, 216)
+        is_down_candle := true
+else
+    if (close - open) >= minBodyHTF
+        clrbar := color.rgb(40, 33, 243)
+        is_up_candle := true
+    if (close - open) <= -minBodyHTF
+        clrbar := color.rgb(255, 111, 0)
+        is_down_candle := true
+
+barcolor(showCandleColors ? (barColorMode == "T3 Trend" ? clr_trend : clrbar) : na)
+
+// White candle = the 10-minute up-transition candle
+isWhiteCandle = showCandleColors and up10m and not up10m[1]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 23.  EARLY CALL / PUT (first 45 minutes) + 10:15 → 10:55 SIGNALS
+// ═══════════════════════════════════════════════════════════════════════════════
+if hasOpen and inFirst45 and not strongLocked and barstate.isconfirmed
+    if close >= up15 and ema18Up
+        callStrong   := true
+        putStrong    := false
+        strongLocked := true
+    if close <= dn15 and ema18Dn
+        putStrong    := true
+        callStrong   := false
+        strongLocked := true
+        dirLabel     := label.new(bar_index, high, "PUT", style = label.style_arrowdown, color = color.red, textcolor = color.white, size = size.huge)
+
+// Green CALL arrow only on a Code-2 white candle
+if callStrong and isWhiteCandle and na(dirLabel) and barstate.isconfirmed
+    dirLabel := label.new(bar_index, low, "CALL", style = label.style_arrowup, color = color.lime, textcolor = color.white, size = size.huge)
+
+plotshape(ta.crossunder(close, ema50) and barstate.isconfirmed, title = "EMA50 Down", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.large)
+plotshape(ta.crossover(close, ema50) and barstate.isconfirmed and isWhiteCandle, title = "EMA50 Up - White Candle Only", style = shape.triangleup, location = location.belowbar, color = color.green, size = size.large)
+
+if post1015 and barstate.isconfirmed and not callNow and not putNow and not na(lowPre1015)
+    if low <= lowPre1015
+        callNow := true
+        label.new(bar_index, low, "CALL NOW", style = label.style_label_up, color = color.lime, textcolor = color.white, size = size.large)
+
+if post1015 and barstate.isconfirmed and not putNow and not callNow and not na(highPre1015) and not isWhiteCandle
+    if high < highPre1015
+        putNow := true
+        label.new(bar_index, high, "PUT NOW", style = label.style_label_down, color = color.red, textcolor = color.white, size = size.large)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 24.  ABSOLUTE ENTRY (midnight box edge rejection)
+// ═══════════════════════════════════════════════════════════════════════════════
+boxReady = not na(boxHigh) and not na(boxLow) and not na(boxMid)
+rng = high - low
+bullBody = close > open
+bearBody = close < open
+bullRejection = rng > 0 and close > low + rng * 0.55
+bearRejection = rng > 0 and close < low + rng * 0.45
+
+touchBoxLow  = boxReady and low  <= (boxLow  + entryTol)
+touchBoxHigh = boxReady and high >= (boxHigh - entryTol)
+
+absCallEntry = boxReady and touchBoxLow  and close > boxLow  and bullBody and bullRejection
+absPutEntry  = boxReady and touchBoxHigh and close < boxHigh and bearBody and bearRejection
+
+if absCallEntry and barstate.isconfirmed
+    absCallFired := true
+    absPutFired  := false
+    absCallLevel := low
+    absPutLevel  := na
+    if not na(absEntryLabel)
+        label.delete(absEntryLabel)
+    absEntryLabel := label.new(bar_index, low, "ABS CALL", style = label.style_label_up, color = color.lime, textcolor = color.white, size = size.large)
+
+if absPutEntry and barstate.isconfirmed
+    absPutFired  := true
+    absCallFired := false
+    absPutLevel  := high
+    absCallLevel := na
+    if not na(absEntryLabel)
+        label.delete(absEntryLabel)
+    absEntryLabel := label.new(bar_index, high, "ABS PUT", style = label.style_label_down, color = color.red, textcolor = color.white, size = size.large)
+
+absCallActive = absCallFired and not na(boxLow)  and close >= boxLow
+absPutActive  = absPutFired  and not na(boxHigh) and close <= boxHigh
+
+if absCallFired and not na(boxLow) and close < boxLow
+    absCallFired := false
+    absCallLevel := na
+if absPutFired and not na(boxHigh) and close > boxHigh
+    absPutFired := false
+    absPutLevel := na
+
+// v5 plotted an ABS dot on EVERY bar that met the entry condition, which is why
+// the chart fills with overlapping "ABS" circles. Now it prints once per new
+// signal, i.e. only when the state actually flips.
+absCallSignal = absCallEntry and barstate.isconfirmed and not absCallFired[1]
+absPutSignal  = absPutEntry  and barstate.isconfirmed and not absPutFired[1]
+plotshape(absCallSignal, title = "Absolute Call Entry", style = shape.circle, location = location.belowbar, color = color.lime, size = size.small, text = "ABS")
+plotshape(absPutSignal,  title = "Absolute Put Entry",  style = shape.circle, location = location.abovebar, color = color.red,  size = size.small, text = "ABS")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 25.  SNAG CALL / PUT ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════
+strongBodyPts = input.float(6.0,  "Strong Entry Body Points",   step = 0.25, group = G_ENG)
+stopPts       = input.float(5.0,  "Trailing Stop Points",       step = 0.25, group = G_ENG)
+beginPutBody  = input.float(3.25, "Begin-Put Body Points",      step = 0.25, group = G_ENG)
+
+m = minute(time_close)
+
+var int cnt_call_10m = 0
+var int cnt_put_10m  = 0
+if wma11_c > wma48_c and close > wma11_c and up10m and close > close[1]
+    cnt_call_10m := cnt_call_10m + 1
+    cnt_put_10m  := 0
+if wma11_c < wma48_c and close < wma48_c and down10m and close < close[1]
+    cnt_call_10m := 0
+    cnt_put_10m  := cnt_put_10m + 1
+
+is_begin_call = bottomsupport and (close > wma48_13 or close > wma200_13)
+is_begin_put  = (bigdrop and (close < wma48_13 or close < wma200_13)) or (ta.crossunder(close, wma48_13) and ta.crossunder(close, wma200_13)) or ta.crossunder(close, wma200_13) or (open - close) >= beginPutBody
+
+// --- CALL side ---
+var float call_price      = 0.0
+var float last_call_price = 0.0
+var float stoploss_call   = 0.0
+
+bool call_ok      = false
+bool call_weak    = false
+bool call_lite    = false
+bool call_confirm = false
+
+// v5 read `(call_price == 0.0 and is_begin_call) or cnt_call_10m == 1` because
+// `and` binds tighter than `or`, so an open CALL was silently re-entered (and
+// its trailing stop reset) every time cnt_call_10m hit 1. Parenthesised.
+if call_price == 0.0 and (is_begin_call or cnt_call_10m == 1)
+    if (close - open) >= strongBodyPts or close > uper_10
+        call_price      := close
+        last_call_price := close
+        stoploss_call   := close - stopPts
+        if close > uper_10
+            call_ok := true
+        else
+            call_weak := true
+    else
+        if ((m - 1) % 5 == 0 or m % 5 == 0 or (m + 1) % 5 == 0) and close > wma11_c
+            call_lite := true
+
+if call_price != 0.0 and ta.crossover(close, uper_10)
+    if not ((is_begin_call or cnt_call_10m == 1) and close > uper_10)
+        call_confirm := true
+
+if call_price != 0.0 and last_call_price < close
+    last_call_price := close
+    stoploss_call   := close - stopPts
+
+bool exit_call = false
+if call_price != 0.0 and (bigdrop or ta.crossunder(close, lower_10) or close < stoploss_call)
+    exit_call  := true
+    call_price := 0.0
+
+// --- PUT side ---
+put_res = false
+if timeframe.period == "5" and close[6] < close[5] and not na(running_ph) and running_ph >= close[5] and running_ph >= close[4] and running_ph >= close[3] and running_ph >= close[2] and running_ph >= close[1] and close < close[1] and close[1] < close[2] and uper_10[6] < uper_10[5] and lower_10[6] < lower_10[5] and (ta.crossunder(close, uper_10) or ta.crossunder(close[3], uper_10) or ta.crossunder(close, avg_wma21))
+    put_res := true
+if timeframe.period == "1" and close[5] < close[4] and close[4] < close[3] and not na(running_ph) and running_ph >= close[3] and running_ph >= close[2] and running_ph >= close[1] and close < close[1] and close[1] < close[2] and uper_10[5] < uper_10[4] and lower_10[5] < lower_10[4] and close < avg_wma21
+    put_res := true
+
+ready_strong_put = put_res
+
+var float put_price      = 0.0
+var float last_put_price = 0.0
+var float stoploss_put   = 0.0
+
+bool put_strong = false
+bool put_lite   = false
+
+// Symmetry fix: v5 had no `put_price == 0.0` guard here, so an open PUT kept
+// re-entering and resetting its own trailing stop on every qualifying bar.
+if put_price == 0.0 and (is_begin_put or cnt_put_10m == 1)
+    if (open - close) >= strongBodyPts and close < lower_10
+        put_price      := close
+        last_put_price := close
+        stoploss_put   := close + stopPts
+        put_strong     := true
+    else
+        if ((m - 1) % 5 == 0 or m % 5 == 0 or (m + 1) % 5 == 0) and close < wma11_c
+            put_lite := true
+
+if put_price != 0.0 and last_put_price > close
+    last_put_price := close
+    stoploss_put   := close + stopPts
+
+bool exit_put = false
+if put_price != 0.0 and (bottomsupport or stoploss_put < close)
+    exit_put  := true
+    put_price := 0.0
+
+// --- Research signals that v5 computed but never plotted ---
+beginput      = high > wma48_10 and close < wma48_10 and rsi < 50 and rsi < rsi[1] + 3
+beginput2     = rsi < rsi[1] and rsi[1] < rsi[2] and close < wma11_c - 1
+beginputout   = bigdrop or is_out_up
+rsima200support  = low < wma200_c and close > wma200_c and rsi > rsi[1] + 5
+rsima200support2 = low < wma48_c  and close > wma48_c  and rsi > rsi[1] + 5
+rsima200drop     = high > wma200_c and close < wma200_c and rsi > rsi[1] - 6 and rsi < rsi[1] + 3
+rsima200drop2    = high > wma48_c  and close < wma48_c  and rsi > rsi[1] - 6 and rsi < rsi[1] + 3
+down3below11 = close[2] < wma11_c and close[1] < wma11_c and close < wma11_c
+
+buyacall = (up10m or is_up_rsi) and (rsima200support or rsima200support2)
+buyaput  = (beginputout and is_down_rsi and down3below11) or (beginput and is_down_rsi and down3below11) or (down3below11 and is_down_rsi and beginput2) or (down3below11 and rsima200drop) or rsima200drop2
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 26.  DIAGNOSTIC MARKS  (all were commented out in v5 — now switchable)
+// ═══════════════════════════════════════════════════════════════════════════════
+showEngineMarks  = input.bool(false, "Engine marks (C-OK / C-Weak / CL / EX-C / P-Strong / PL / EX-P)", group = G_DIAG)
+showPatternMarks = input.bool(false, "Pattern marks (100% Call/Put, Big Drop, Big Bottom, BR, OUT)", group = G_DIAG)
+showExhaustion   = input.bool(false, "Exhaustion marks (TOP / BOTTOM diamonds, R-U / R-D)", group = G_DIAG)
+showBuyaMarks    = input.bool(false, "Buy-a-Call / Buy-a-Put marks", group = G_DIAG)
+
+plotshape(showEngineMarks and call_ok,      title = "C-OK",      text = "C-OK",      style = shape.labelup,   location = location.belowbar, color = color.new(#088F8F, 30), textcolor = color.white, size = size.tiny)
+plotshape(showEngineMarks and call_weak,    title = "C-Weak",    text = "C-Weak",    style = shape.labelup,   location = location.belowbar, color = color.new(#454B1B, 30), textcolor = color.white, size = size.tiny)
+plotshape(showEngineMarks and call_lite,    title = "C-Lite",    text = "CL",        style = shape.labelup,   location = location.belowbar, color = color.gray,             textcolor = color.white, size = size.tiny)
+plotshape(showEngineMarks and call_confirm, title = "C-Confirm", text = "C-Conf",    style = shape.labelup,   location = location.belowbar, color = color.new(#088F8F, 0),  textcolor = color.white, size = size.tiny)
+plotshape(showEngineMarks and exit_call,    title = "EX-C",      text = "EX-C",      style = shape.labeldown, location = location.abovebar, color = color.new(#023020, 0),  textcolor = color.white, size = size.tiny)
+plotshape(showEngineMarks and put_strong,   title = "P-Strong",  text = "P-Strong",  style = shape.labeldown, location = location.abovebar, color = color.new(#EC5800, 30), textcolor = color.white, size = size.tiny)
+plotshape(showEngineMarks and put_lite,     title = "P-Lite",    text = "PL",        style = shape.labeldown, location = location.abovebar, color = color.gray,             textcolor = color.white, size = size.tiny)
+plotshape(showEngineMarks and exit_put,     title = "EX-P",      text = "EX-P",      style = shape.labelup,   location = location.belowbar, color = color.new(#093020, 0),  textcolor = color.white, size = size.tiny)
+plotshape(showEngineMarks and ready_strong_put, title = "RSP",   text = "RSP",       style = shape.labeldown, location = location.abovebar, color = color.yellow,           textcolor = color.black, size = size.tiny)
+
+plotshape(showPatternMarks and call_100,      title = "CALL 100", text = "C100", style = shape.labelup,   location = location.belowbar, color = color.lime,   textcolor = color.black, size = size.tiny)
+plotshape(showPatternMarks and put_100,       title = "PUT 100",  text = "P100", style = shape.labeldown, location = location.abovebar, color = color.red,    textcolor = color.white, size = size.tiny)
+plotshape(showPatternMarks and bigdrop,       title = "Big Drop",   style = shape.square, location = location.abovebar, color = color.white,  size = size.tiny)
+plotshape(showPatternMarks and bottomsupport, title = "Big Bottom", style = shape.xcross, location = location.belowbar, color = color.yellow, size = size.tiny)
+plotshape(showPatternMarks and is_br and not crossup11_48, title = "BR",  text = "BR",  style = shape.triangledown, location = location.abovebar, color = color.red, textcolor = color.white, size = size.tiny)
+plotshape(showPatternMarks and is_out_up,     title = "OUT", text = "OUT", style = shape.triangledown, location = location.abovebar, color = color.red, textcolor = color.white, size = size.tiny)
+
+plotshape(showExhaustion and is_bottom,   title = "Bottom", style = shape.diamond, location = location.belowbar, color = color.yellow, size = size.tiny)
+plotshape(showExhaustion and is_top,      title = "TOP",    style = shape.diamond, location = location.abovebar, color = color.white,  size = size.tiny)
+plotshape(showExhaustion and is_up_rsi,   title = "R-U", text = "R-U", style = shape.labelup,   location = location.belowbar, color = color.green, textcolor = color.white, size = size.tiny)
+plotshape(showExhaustion and is_down_rsi, title = "R-D", text = "R-D", style = shape.labeldown, location = location.abovebar, color = color.red,   textcolor = color.white, size = size.tiny)
+
+plotshape(showBuyaMarks and buyacall, title = "Buy a Call", text = "BC", style = shape.labelup,   location = location.belowbar, color = color.new(color.green, 20), textcolor = color.white, size = size.tiny)
+plotshape(showBuyaMarks and buyaput,  title = "Buy a Put",  text = "BP", style = shape.labeldown, location = location.abovebar, color = color.new(color.red, 20),   textcolor = color.white, size = size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 27.  PIVOT S/R LINES + CROSS ANNOTATIONS
+//      v5 rebuilt six lines and six labels on EVERY bar (line.new + delete of
+//      the previous id) and never deleted the U-/D- cross labels at all, so the
+//      500-label budget filled up on an active day. Now: persistent objects
+//      updated in place, cross labels emitted once per confirmed cross.
+// ═══════════════════════════════════════════════════════════════════════════════
+showSR     = input.bool(true, "Show Pivot S/R Lines", group = G_SR)
+line_len   = 10
+line_start = 4
+line_len2  = line_len / 2 + 2
+
+float h1_val = 0.0
+float h2_val = 0.0
+float h3_val = 0.0
+float l1_val = 0.0
+float l2_val = 0.0
+float l3_val = 0.0
+
+if barstate.islast
+    for bk = 0 to 60
+        float ph = running_ph[bk]
+        float pl = running_pl[bk]
+        if not na(ph)
+            if h1_val == 0.0
+                h1_val := ph
+            else if h2_val == 0.0 and math.abs(ph - h1_val) > 3
+                h2_val := ph
+            else if h3_val == 0.0 and h2_val != 0.0 and math.abs(ph - h2_val) > 3 and math.abs(ph - h1_val) > 3
+                h3_val := ph
+        if not na(pl)
+            if l1_val == 0.0
+                l1_val := pl
+            else if l2_val == 0.0 and math.abs(pl - l1_val) > 3
+                l2_val := pl
+            else if l3_val == 0.0 and l2_val != 0.0 and math.abs(pl - l2_val) > 3 and math.abs(pl - l1_val) > 3
+                l3_val := pl
+
+// v5 bug: the S2 label printed l3_val, so S2 and S3 always showed the same
+// number on the chart (visible in the screenshot: "S2: 7,819.25 / S3: 7,819.25").
+// Fixed by indexing the levels here.
+srVals = array.from(h1_val, h2_val, h3_val, l1_val, l2_val, l3_val)
+var srTags = array.from("R1", "R2", "R3", "S1", "S2", "S3")
+
+var array<line>  srLines  = array.new<line>(6, na)
+var array<label> srLabels = array.new<label>(6, na)
+
+if barstate.islast and showSR
+    for k = 0 to 5
+        float lvl = array.get(srVals, k)
+        if lvl != 0.0 and not na(lvl)
+            string tag = array.get(srTags, k)
+            color  col = k < 3 ? color.white : color.blue
+            line  ln = array.get(srLines, k)
+            label lb = array.get(srLabels, k)
+            if na(ln)
+                array.set(srLines, k, line.new(bar_index + line_start, lvl, bar_index + line_len, lvl, width = 2, color = col))
+            else
+                line.set_xy1(ln, bar_index + line_start, lvl)
+                line.set_xy2(ln, bar_index + line_len, lvl)
+            if na(lb)
+                array.set(srLabels, k, label.new(bar_index + line_len2, lvl + 1, tag + ": " + str.tostring(lvl, format.mintick), style = label.style_text_outline, color = color.new(#454B1B, 50), textcolor = color.white))
+            else
+                label.set_xy(lb, bar_index + line_len2, lvl + 1)
+                label.set_text(lb, tag + ": " + str.tostring(lvl, format.mintick))
+
+// Level-cross annotations. These only ever fire on the live bar (h1..l3 are
+// computed on barstate.islast only) — same as v5 — but they are now gated on a
+// confirmed bar so one cross produces exactly one label instead of one per tick.
+float maxCrossUp = 0.0
+float maxCrossDn = 0.0
+
+if showSR and barstate.isconfirmed
+    for k = 0 to 5
+        float lvl = array.get(srVals, k)
+        if lvl != 0.0 and not na(lvl)
+            string tag = array.get(srTags, k)
+            float  pts = math.abs(close - open)
+            if (open < lvl or close[1] < lvl) and close > lvl and pts > 0
+                maxCrossUp := math.max(maxCrossUp, pts)
+                label.new(bar_index + 6, lvl, "U-" + tag + ": " + str.tostring(pts, "#.##"), style = label.style_text_outline, color = color.new(#454B1B, 50), textcolor = color.yellow)
+            if (open > lvl or close[1] > lvl) and close < lvl and pts > 0
+                maxCrossDn := math.max(maxCrossDn, pts)
+                label.new(bar_index + 6, lvl, "D-" + tag + ": " + str.tostring(pts, "#.##"), style = label.style_text_outline, color = color.new(#454B1B, 50), textcolor = color.red)
+
+strongSRCrossUp = maxCrossUp >= cross_up_point
+strongSRCrossDn = maxCrossDn >= cross_down_point
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 28.  RIGHT-SIDE STATUS PANEL
+// ═══════════════════════════════════════════════════════════════════════════════
+string strongDayText = "INSIDE BOX"
+color  strongDayBg   = color.gray
+
+if not na(boxHigh) and close > boxHigh
+    strongDayText := "CALL STRONG DAY"
+    strongDayBg   := color.green
+else if not na(boxLow) and close < boxLow
+    strongDayText := "PUT STRONG DAY"
+    strongDayBg   := color.red
+else if absCallActive
+    strongDayText := "ABS CALL ACTIVE"
+    strongDayBg   := color.lime
+else if absPutActive
+    strongDayText := "ABS PUT ACTIVE"
+    strongDayBg   := color.red
+
+// v5 rewrote this cell on every historical bar; only the last bar is visible.
+// Rows 2 and 3 surface txtMarkTrend / txtOrder and the WMA200 stretch state,
+// all of which v5 computed and then discarded.
+string trendRow = txtMarkTrend == "" ? "NO TREND  |  N/A" : txtMarkTrend + "  |  " + txtOrder
+color  trendBg  = txtOrder == "BUY" ? color.new(color.green, 30) : txtOrder == "SELL" ? color.new(color.red, 30) : color.new(color.gray, 30)
+
+string stretchRow = is_top_wma200 ? "TOP  " + str.tostring(pct_high_wma200, "#.##") + "% over WMA200" : is_bottom_wma200 ? "BOTTOM  " + str.tostring(pct_low_wma200, "#.##") + "% under WMA200" : "WMA200 stretch: normal"
+color  stretchBg  = is_top_wma200 ? color.new(color.orange, 30) : is_bottom_wma200 ? color.new(color.aqua, 30) : color.new(color.gray, 60)
+
+if barstate.islast
+    table.cell(rightPanel, 0, 0, strongDayText, text_color = color.white, bgcolor = strongDayBg, text_size = size.large)
+    table.cell(rightPanel, 0, 1, trendRow,      text_color = color.white, bgcolor = trendBg,     text_size = size.normal)
+    table.cell(rightPanel, 0, 2, stretchRow,    text_color = color.white, bgcolor = stretchBg,   text_size = size.normal)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 29.  SESSION SNAPSHOTS + WEBHOOK ALERT
+// ═══════════════════════════════════════════════════════════════════════════════
+enableWebhook = input.bool(true, "Send webhook JSON alert()", group = G_ALERT)
+alertTicker   = input.string("SPX", "Ticker field in the JSON payload", group = G_ALERT)
+
+var float wma200_last       = na
+var float open200_6h30      = na
+var float wma200_yesterday  = na
+var float close200_yesterday = na
+var float open15_6h30       = na
+var float open15_6h45       = na
+
+if hCls == 13 and mCls == 0
+    wma200_yesterday   := wma200_2
+    close200_yesterday := close_1d
+
+if hCls == 6 and mCls == 30
+    wma200_last  := wma200_2
+    open200_6h30 := close
+    open15_6h30  := open_15
+
+if hCls == 6 and mCls <= 45
+    open15_6h45 := close_15
+
+wma200_diff   = close_2  - wma200_2
+wma200_diff15 = close_15 - wma200_15
+change_15m    = open15_6h45 - open15_6h30
+
+if enableWebhook and barstate.isconfirmed
+    alert('{"wma200":' + str.tostring(wma200_2) + ',"ticker":"' + alertTicker + '","wma200_15":' + str.tostring(wma200_15) + ',"wma200[1]":' + str.tostring(wma200_2[1]) + ',"wma200[2]":' + str.tostring(wma200_2[2]) + ',"close15":' + str.tostring(close_15) + ',"change_15m":' + str.tostring(change_15m) + ',"open200_6h30":' + str.tostring(open200_6h30) + ',"wma200_last":' + str.tostring(wma200_last) + ',"rsi":' + str.tostring(rsi_2) + ',"rsi15":' + str.tostring(rsi_15) + ',"wma200_diff":' + str.tostring(wma200_diff) + ',"wma200_diff15":' + str.tostring(wma200_diff15) + ',"current_price":' + str.tostring(close) + ',"open15_6h45":' + str.tostring(open15_6h45) + ',"close200_yesterday":' + str.tostring(close200_yesterday) + ',"change":' + str.tostring(close_2 - close200_yesterday) + '}', alert.freq_once_per_bar)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 30.  OPENING-WINDOW CALL / PUT MARKER  (06:00 → 07:15)
+//      v5 kept two int arrays only to remember one timestamp each. Same
+//      behaviour, one variable each.
+// ═══════════════════════════════════════════════════════════════════════════════
+var int callSignalTime = na
+var int putSignalTime  = na
+
+if hCls >= 6 and (hCls < 7 or (hCls == 7 and mCls <= 15))
+    if close_15 > close_15[1] and close_15 > wma200_15
+        putSignalTime := na
+        if na(callSignalTime)
+            callSignalTime := time
+    if close_15 < close_15[1] and close_15 < wma200_15
+        callSignalTime := na
+        if na(putSignalTime)
+            putSignalTime := time
+
+is_call = not na(callSignalTime) and time == callSignalTime
+is_put  = not na(putSignalTime)  and time == putSignalTime
+
+plotshape(is_call ? visLow     : na, title = "CALL", text = "CALL", style = shape.triangleup,   location = location.absolute, color = color.green, size = size.normal, textcolor = color.white)
+plotshape(is_put  ? highest_1d : na, title = "PUT",  text = "PUT",  style = shape.triangledown, location = location.absolute, color = color.red,   size = size.normal, textcolor = color.white)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 31.  WMA200 DISTANCE EXTREMES (±40 points)
+// ═══════════════════════════════════════════════════════════════════════════════
+diffPoints   = input.float(40.0, "WMA200 Distance Trigger (points)", step = 1.0, group = G_DIAG)
+ema_diff_200 = close - wma200_c
+
+var int call2SignalTime = na
+var int put2SignalTime  = na
+
+if ema_diff_200 < -diffPoints
+    put2SignalTime := na
+    if na(call2SignalTime)
+        call2SignalTime := time
+if ema_diff_200 > diffPoints
+    call2SignalTime := na
+    if na(put2SignalTime)
+        put2SignalTime := time
+
+is_call2 = not na(call2SignalTime) and time == call2SignalTime
+is_put2  = not na(put2SignalTime)  and time == put2SignalTime
+
+plotshape(is_call2 ? visLow     : na, title = "Diff below -N", text = "Diff <-40p", style = shape.labelup,   location = location.absolute, color = color.blue,  size = size.normal, textcolor = color.white)
+plotshape(is_put2  ? highest_1d : na, title = "Diff above +N", text = "Diff >40p",  style = shape.labeldown, location = location.absolute, color = color.white, size = size.normal, textcolor = color.black)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 32.  ALERT CONDITIONS
+//      v5 computed a dozen is_alert_* flags and never exposed a single one.
+// ═══════════════════════════════════════════════════════════════════════════════
+alertcondition(absCallSignal,   "ABS CALL entry",        "ABS CALL entry at the midnight box low")
+alertcondition(absPutSignal,    "ABS PUT entry",         "ABS PUT entry at the midnight box high")
+alertcondition(call_ok,         "Snag C-OK",             "Snag strong CALL entry (above upper band)")
+alertcondition(call_weak,       "Snag C-Weak",           "Snag weak CALL entry")
+alertcondition(call_lite,       "Snag C-Lite",           "Snag lite CALL entry")
+alertcondition(call_confirm,    "Snag C-Confirm",        "Snag CALL confirmed by upper band cross")
+alertcondition(exit_call,       "Snag exit CALL",        "Snag CALL exit (stop / band cross / big drop)")
+alertcondition(put_strong,      "Snag P-Strong",         "Snag strong PUT entry (below lower band)")
+alertcondition(put_lite,        "Snag P-Lite",           "Snag lite PUT entry")
+alertcondition(exit_put,        "Snag exit PUT",         "Snag PUT exit (stop / bottom support)")
+alertcondition(ready_strong_put,"Snag ready strong PUT", "Snag ready-strong-PUT setup")
+alertcondition(almaBuy,         "ALMA/GAMA buy",         "ALMA crossed above the Gaussian adaptive MA")
+alertcondition(almaSell,        "ALMA/GAMA sell",        "ALMA crossed below the Gaussian adaptive MA")
+alertcondition(trendFlipUp,     "Colour trend flip UP",  "Bar colour sequence flipped bearish to bullish")
+alertcondition(trendFlipDn,     "Colour trend flip DOWN","Bar colour sequence flipped bullish to bearish")
+alertcondition(strongSRCrossUp, "Strong S/R cross up",   "Price crossed a pivot level upward with a large body")
+alertcondition(strongSRCrossDn, "Strong S/R cross down", "Price crossed a pivot level downward with a large body")
+alertcondition(is_bottom,       "Exhaustion bottom",     "WMA200 stretch bottom with MACD reset")
+alertcondition(is_top,          "Exhaustion top",        "WMA200 stretch top with MACD reset")
+alertcondition(buyacall,        "Buy a Call",            "RSI + WMA200/48 reclaim")
+alertcondition(buyaput,         "Buy a Put",             "RSI + WMA200/48 loss")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CHANGELOG  v5 → v6
+// ═══════════════════════════════════════════════════════════════════════════════
+//  LANGUAGE / v6 COMPLIANCE
+//   1.  //@version=6.
+//   2.  v6 removed automatic int/float → bool casting. `if point_ph`,
+//       `if point_pl`, `running_pl and ...`, `running_ph and ...` were all
+//       compile errors; replaced with explicit `not na(...)` tests.
+//   3.  Dropped all three library imports. PineCoders/VisibleChart was
+//       imported twice (v4 unaliased + v2 as pcVC) and PineCoders/Time was
+//       never referenced. The only thing actually used — VisibleChart.low() —
+//       is now four lines of native chart.left/right_visible_bar_time code.
+//   4.  `str.format("{0}", timeframe.period) == "5"` → `timeframe.period == "5"`
+//       (13 occurrences).
+//   5.  `input.float()` was declared inside a ternary branch in the GAMA
+//       block; hoisted to top level.
+//   6.  The ALMA `offset` global was shadowed by the `for offset = 0 to 60`
+//       loop counter in the S/R block; renamed.
+//
+//  REPAINTING / LOOK-AHEAD  (the reason this repo exists)
+//   7.  Every intraday request.security() used lookahead_on with no history
+//       offset, i.e. it read higher-timeframe bars that had not closed yet.
+//       All 13m/15m/10m/2m requests now go through f_htf(), which uses
+//       lookahead_off, so a chart bar only sees HTF data that existed at that
+//       moment. "Strict HTF" additionally drops the forming HTF bar.
+//       EXPECT DIFFERENT HISTORICAL SIGNALS — the old ones were not tradable.
+//   8.  close_1d requested daily `close` (not `close[1]`) with lookahead_on,
+//       so "close200_yesterday" was today's unknown settlement. Fixed.
+//   9.  Session windows mixed America/Los_Angeles, "UTC-8" and "UTC-7", so
+//       roughly half the day's logic was an hour off during DST. One
+//       timezone input drives everything now.
+//
+//  LOGIC BUGS
+//  10.  S2 label printed l3_val — S2 and S3 always showed the same price on
+//       the chart. Fixed to l2_val.
+//  11.  `if (call_price == 0.0 and is_begin_call or cnt_call_10m == 1)`
+//       parses as `(A and B) or C`, so an open CALL was re-entered and its
+//       trailing stop reset whenever cnt_call_10m hit 1. Parenthesised, and
+//       the same guard added to the PUT side for symmetry.
+//  12.  `txtOrder := 'SELL'` was indented one level too far out, so it fired
+//       for every down-trend bar rather than only for a confirmed one.
+//  13.  Unguarded divisions by gain2, (high-low), sumOfWeights, stdev and
+//       src_sm could produce inf/na and silently disable patterns. All go
+//       through f_div()/f_percent() now, and GAMA's sigma has a floor.
+//  14.  The S/R scan assigned na into h1_val/l1_val when the pivot buffer was
+//       empty, which then poisoned every `!= 0.0` test downstream.
+//  15.  Open-reset deleted its line objects but left the ids non-na, so later
+//       `if not na(openLine)` guards operated on dead drawings.
+//
+//  DRAWING BUDGET / PERFORMANCE
+//  16.  ABS entry dots printed on every qualifying bar (the "ABS" pile-up on
+//       the chart). Now one dot per state change.
+//  17.  U-R1..D-S3 cross labels were never deleted and were re-created on
+//       every real-time tick — the 500-label budget filled up on an active
+//       day. Now one label per confirmed cross.
+//  18.  Six S/R lines and six S/R labels were destroyed and rebuilt every
+//       bar; they are persistent objects updated in place.
+//  19.  h1_up_point..l3_down_point were `var` floats that latched on and kept
+//       re-emitting labels forever; they are per-bar values now. This also
+//       deleted ~250 lines of copy-pasted "reset the other five" blocks.
+//  20.  The VWAP box teardown was duplicated verbatim three times → one
+//       teardown block covering new-day / flip-up / flip-down.
+//  21.  The right-side status cell was rewritten on every historical bar;
+//       now only on barstate.islast.
+//  22.  VWAP trend-line history capped at 400 (was 450) so the 6 S/R lines
+//       plus the midnight/open/10:15 lines still fit under the 500 limit.
+//  23.  Removed the three empty tables (panel / panel2 / panel5) that drew
+//       blank cells at top_right and bottom_right.
+//  24.  Removed `plot(na, display = display.none)`.
+//  25.  De-duplicated ta.wma(close, 200) (computed as both ma200 and wma_200),
+//       ta.wma(close, 11) and ta.wma(close, 48); replaced two hand-written
+//       10-term averages with ta.sma(...,10). request.security call count
+//       dropped from 24 to 14.
+//
+//  DEAD CODE REMOVED  (say the word and any of it comes back)
+//  26.  tzOffsetInMs(), f_nDecimals()/_n, stoch/k/d/k10/d10, cci, rsiWMA,
+//       the Chande momentum block (chandeMO/cL/cS), ispullback_call and
+//       ispullback_put (their second OR-branch was a subset of the first, and
+//       nothing read them), pullbackcall, pullbackrsi,
+//       pct_rsi, rsi14/rsiL/rsiS, no_call/no_put + diff1..diff5,
+//       is_away_call/is_away_put + the away_call/away_put inputs,
+//       sell_top/buy_bottom/input_in/input_out inputs, sideaway/sideway/
+//       sideway_short/sideway_long, avg/avg2/start_put/start_call,
+//       is_strong_buy/is_strong_sell, lv/hv/l_val/h_val/start_time/end_time,
+//       l_ema_diff/h_ema_diff, open_ema/open_ema_diff/start_time_ema,
+//       lowest_1d, last_close_1d, wma200_5, wma50_15, the duplicate
+//       running_ph/running_pl plots at offset 0, and the no-op
+//       `if pattern_put \n pattern_put := false`.
+//
+//  NEW / RESTORED
+//  27.  Everything the script computed but never showed is now switchable
+//       under "11 · Diagnostics": the Snag engine marks (C-OK, C-Weak, CL,
+//       C-Confirm, EX-C, P-Strong, PL, EX-P, RSP), the pattern marks
+//       (C100/P100, Big Drop, Big Bottom, BR, OUT), the exhaustion diamonds
+//       and R-U/R-D, and Buy-a-Call / Buy-a-Put.
+//  28.  21 alertcondition() entries. v5 had none — the is_alert_* flags went
+//       nowhere.
+//  29.  The T3 trend bar colouring (clr_bar) was computed and then thrown
+//       away because barcolor() only ever received the Code-2 colour. It is
+//       now selectable via "Bar Color Source".
+//  30.  Hard-coded magic numbers are inputs: entry body points (6), trailing
+//       stop (5), begin-put body (3.25), intraday/HTF strong body (3 / 6),
+//       the ±40 WMA200 distance, and the webhook ticker string (was the
+//       literal "SPX" even on ES/NQ charts).
+// ═══════════════════════════════════════════════════════════════════════════════
