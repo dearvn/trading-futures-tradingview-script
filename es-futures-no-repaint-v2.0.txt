@@ -1,0 +1,974 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © donald
+//
+// ══════════════════════════════════════════════════════════════════════════════
+//  AUTO TRADE FUTURES — ES  ·  v2.1  ·  NO-REPAINT BUILD  ·  Pine v6
+//
+//  Tuned for ES1! / MES1! (CME S&P 500 E-mini) on 1m–15m, NQ presets included.
+//
+//  WHAT "NO REPAINT" MEANS HERE
+//    1. No request.security() call can see the future. The v1 script pulled
+//       daily high/low and a 6-hour low with lookahead_on and no history
+//       offset — on every historical bar that hands the script the FINAL value
+//       of a bar that had not closed yet. Those are now derived from the chart
+//       bars themselves, so history and live are identical.
+//    2. No calculation depends on timenow (wall-clock). v1 anchored the ETH /
+//       RTH session lines and the MACD panel colour to timenow, so the same
+//       historical bar produced a different result depending on when the chart
+//       was loaded.
+//    3. Every signal, label and alert is decided at the bar close
+//       (barstate.isconfirmed). v1 evaluated the whole CALL/PUT engine on each
+//       incoming tick, so "CALL case1" / "PUT case2" labels appeared mid-bar
+//       and vanished before the candle closed.
+//    4. One IANA timezone drives every session test. v1 mixed the exchange
+//       clock (hour / minute) with a fixed "GMT-7" timestamp, which is one hour
+//       out for the ~4 winter months and put the Globex anchor on the wrong bar.
+//
+//  Built for Pine v6. The v6 notes are at the top of the changelog.
+//
+//  Full changelog at the bottom of the file.
+// ══════════════════════════════════════════════════════════════════════════════
+
+//@version=6
+indicator("Auto Trade Futures ES", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  0.  INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+G_NR  = "0 · No-repaint"
+G_SIG = "1 · Signal thresholds"
+G_DRW = "2 · Drawings"
+
+confirmOnly = input.bool(true, "Decide signals on closed bars only", group = G_NR, tooltip = "ON  = a signal is evaluated once, at the bar close, and never changes afterwards. This is the non-repainting mode.\nOFF = the engine re-evaluates on every tick of the forming bar; labels and alerts can appear and then disappear before the candle closes.")
+tz          = input.string("America/Los_Angeles", "Session timezone", options = ["America/Los_Angeles", "America/New_York", "America/Chicago", "UTC"], group = G_NR, tooltip = "Drives the ETH (Globex) and RTH anchors. An IANA zone follows DST; the fixed GMT-7 offset used before did not.")
+ethHour     = input.int(15, "ETH (Globex) open hour", minval = 0, maxval = 23, group = G_NR, tooltip = "15:00 Los Angeles = 17:00 Chicago = the CME ES session open.")
+rthHour     = input.int(6,  "RTH open hour",          minval = 0, maxval = 23, group = G_NR)
+rthMin      = input.int(30, "RTH open minute",        minval = 0, maxval = 59, group = G_NR)
+
+pctHigh = input.float(10.0, "Highest %", group = G_SIG)
+pctLow  = input.float(-8.0, "Lowest %",  group = G_SIG)
+stopPts = input.float(10.0, "Stop distance (points)", step = 0.25, minval = 0.25, group = G_SIG, tooltip = "Was hard-coded to 10 points in v1.")
+emaStep = input.float(5.0,  "EMA200 distance step (points)", step = 0.25, minval = 0.25, group = G_SIG, tooltip = "How far the close-to-WMA200 distance must move bar over bar to count as EMA_CHANGE_CALL / EMA_CHANGE_PUT. Was hard-coded to 5.")
+
+autoPreset = input.bool(true, "Auto stretch / reverse presets by timeframe", group = G_SIG)
+pctTopIn    = input.float(2.5,  "Manual TOP %",    step = 0.1, group = G_SIG)
+pctBottomIn = input.float(-2.5, "Manual BOTTOM %", step = 0.1, group = G_SIG)
+revPtsIn    = input.float(30.0, "Manual reverse distance (points)", step = 1, group = G_SIG)
+
+showBigLabels    = input.bool(true,  "BIG CALL / BIG PUT labels", group = G_DRW)
+showSignalLabels = input.bool(true,  "CALL / PUT case labels",    group = G_DRW)
+showInOutLabels  = input.bool(true,  "IN / OUT labels",           group = G_DRW)
+showPointLabels  = input.bool(false, "Per-bar EMA200 distance labels", group = G_DRW, tooltip = "v1 printed one of these on every single bar. With a 500-label budget that erases the older CALL/PUT labels, so the chart looked different depending on how far back you scrolled. Off by default.")
+showLevels       = input.bool(true,  "Day / ETH / RTH levels",    group = G_DRW)
+showInOutLine    = input.bool(true,  "In-Out trailing line",      group = G_DRW)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  1.  HELPERS + THE CONFIRM GATE
+// ═══════════════════════════════════════════════════════════════════════════════
+f_RoundUp(float number, int decimals) =>
+    factor = math.pow(10, decimals)
+    math.ceil(number * factor) / factor
+
+// Everything that writes state, draws or alerts hangs off this.
+// barstate.isconfirmed is always true on historical bars, so history is
+// untouched; only the forming realtime bar is held back until it closes.
+canAct = barstate.isconfirmed or not confirmOnly
+
+h = hour(time, tz)
+m = minute(time, tz)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  2.  MOVING AVERAGES + CROSSES
+// ═══════════════════════════════════════════════════════════════════════════════
+wma13  = ta.wma(close, 13)
+wma48  = ta.wma(close, 48)
+wma200 = ta.wma(close, 200)
+
+plot(wma13,  title = "WMA13",  color = color.blue)
+plot(wma48,  title = "WMA48",  color = color.yellow)
+plot(wma200, title = "WMA200", color = color.white)
+
+crossUpWMA13    = ta.crossover(close,  wma13)
+crossDownWMA13  = ta.crossunder(close, wma13)
+crossUpWMA48    = ta.crossover(close,  wma48)
+crossDownWMA48  = ta.crossunder(close, wma48)
+crossUpWMA200   = ta.crossover(close,  wma200)
+crossDownWMA200 = ta.crossunder(close, wma200)
+
+crossUpWMA13_48    = ta.crossover(wma13,  wma48)
+crossDownWMA13_48  = ta.crossunder(wma13, wma48)
+crossUpWMA48_200   = ta.crossover(wma48,  wma200)
+crossDownWMA48_200 = ta.crossunder(wma48, wma200)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  3.  BIG CALL / BIG PUT
+//      v1 stored the cross bar_index but drew the label at the CURRENT wma13 /
+//      wma48 value, so the marker sat at a past x with a present y. The price
+//      is now captured at the moment of the cross.
+// ═══════════════════════════════════════════════════════════════════════════════
+var int   xDn1348 = na
+var int   xDn48200 = na
+var int   xUp1348 = na
+var int   xUp48200 = na
+var float yDn1348 = na
+var float yDn48200 = na
+var float yUp1348 = na
+var float yUp48200 = na
+
+var bool is_big_put  = false
+var bool is_big_call = false
+
+if canAct
+    if crossDownWMA13_48
+        xDn1348  := bar_index
+        yDn1348  := wma48
+        xUp1348  := na
+    if crossUpWMA13_48
+        xUp1348  := bar_index
+        yUp1348  := wma48
+        xDn1348  := na
+    if crossDownWMA48_200
+        xDn48200 := bar_index
+        yDn48200 := wma200
+        xUp48200 := na
+    if crossUpWMA48_200
+        xUp48200 := bar_index
+        yUp48200 := wma200
+        xDn48200 := na
+
+    // Both legs of the sequence are in place -> the big move is confirmed.
+    if not na(xDn48200) and not na(xDn1348)
+        int   xa = xDn1348 < xDn48200 ? xDn48200 : xDn1348
+        float ya = xDn1348 < xDn48200 ? yDn48200 : yDn1348
+        if showBigLabels
+            label.new(xa, ya, text = "BIG PUT", textcolor = color.white, color = color.red, size = size.normal, style = label.style_triangledown)
+        xDn1348    := na
+        xDn48200   := na
+        is_big_put := true
+        is_big_call := false
+
+    if not na(xUp48200) and not na(xUp1348)
+        int   xb = xUp1348 < xUp48200 ? xUp48200 : xUp1348
+        float yb = xUp1348 < xUp48200 ? yUp48200 : yUp1348
+        if showBigLabels
+            label.new(xb, yb, text = "BIG CALL", textcolor = color.white, color = color.green, size = size.normal, style = label.style_triangleup)
+        xUp1348     := na
+        xUp48200    := na
+        is_big_put  := false
+        is_big_call := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  4.  TREND STATE MACHINE
+// ═══════════════════════════════════════════════════════════════════════════════
+var bool isUpTrend   = false
+var bool isDownTrend = false
+var int  trendUp     = 0
+var int  trendDown   = 0
+
+if canAct
+    if (crossUpWMA13 or crossUpWMA48 or crossUpWMA200) and not isUpTrend
+        isUpTrend   := true
+        isDownTrend := false
+    if (crossDownWMA13 or crossDownWMA48 or crossDownWMA200) and not isDownTrend
+        isUpTrend   := false
+        isDownTrend := true
+
+    if isUpTrend
+        if crossUpWMA13_48
+            trendUp   := 1
+            trendDown := 0
+        if crossUpWMA48_200
+            trendUp   := 2
+            trendDown := 0
+    if isDownTrend
+        if crossDownWMA13_48
+            trendUp   := 0
+            trendDown := 1
+        if crossDownWMA48_200
+            trendUp   := 0
+            trendDown := 2
+
+string txtMarkTrend = ""
+string txtOrder     = "N/A"
+if isUpTrend
+    txtMarkTrend := "Begin Up Trend"
+    if trendUp == 1
+        txtMarkTrend := "Confirm Strong Uptrend"
+        txtOrder     := "BUY"
+    else if trendUp == 2
+        txtMarkTrend := "STRONGER UPTREND"
+        txtOrder     := "BUY"
+else if isDownTrend
+    txtMarkTrend := "Begin Down Trend"
+    // v1 bug: `txtOrder := 'SELL'` sat one indent level out, so every
+    // down-trend bar reported SELL even before trendDown reached 1 or 2.
+    if trendDown == 1
+        txtMarkTrend := "Confirm Strong Downtrend"
+        txtOrder     := "SELL"
+    else if trendDown == 2
+        txtMarkTrend := "STRONGER DOWNTREND"
+        txtOrder     := "SELL"
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  5.  TIMEFRAME PRESETS
+//      v1 only recognised "5", "15", "180" and "D" by string compare. On a 3m
+//      ES chart every branch missed, so pctTop stayed at 5% — 385 points on a
+//      7,700 handle — and TOP / BOTTOM could never fire. Driven off the bar
+//      length in minutes now, so 2m / 3m / 10m / 30m are covered too.
+//      Symbol test uses syminfo.root, so ESZ2025 / MESH2026 work like ES1!.
+// ═══════════════════════════════════════════════════════════════════════════════
+tfMin = timeframe.in_seconds() / 60.0
+isNQ  = syminfo.root == "NQ" or syminfo.root == "MNQ"
+
+float pctTop       = pctTopIn
+float pctBottom    = pctBottomIn
+float pointReverse = revPtsIn
+
+if autoPreset
+    if tfMin <= 5
+        pctTop       := 2.5
+        pctBottom    := -2.5
+        pointReverse := isNQ ? 150.0 : 30.0
+    else if tfMin <= 15
+        pctTop       := 5.0
+        pctBottom    := -5.0
+        pointReverse := isNQ ? 250.0 : 75.0
+    else if tfMin <= 60
+        pctTop       := 5.0
+        pctBottom    := -5.0
+        pointReverse := isNQ ? 300.0 : 100.0
+    else if tfMin <= 180
+        pctTop       := 10.0
+        pctBottom    := -10.0
+        pointReverse := isNQ ? 400.0 : 125.0
+    else
+        pctTop       := 15.0
+        pctBottom    := -15.0
+        pointReverse := isNQ ? 600.0 : 200.0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  6.  WMA200 STRETCH
+// ═══════════════════════════════════════════════════════════════════════════════
+string txtBottom = ""
+string txtTop    = ""
+bool  is_bottom_wma200 = false
+bool  is_top_wma200    = false
+float pct_low_wma200   = 0.0
+float pct_high_wma200  = 0.0
+
+if low < wma200
+    pct_low_wma200 := f_RoundUp((low - wma200) / wma200 * 100, 2)
+    if pct_low_wma200 <= pctBottom
+        txtBottom        := "BOTTOM"
+        is_bottom_wma200 := true
+else if high > wma200
+    pct_high_wma200 := f_RoundUp((high - wma200) / wma200 * 100, 2)
+    if pct_high_wma200 >= pctTop
+        txtTop        := "TOP"
+        is_top_wma200 := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  7.  PRICE-AWAY REVERSE ANCHORS
+//      v1 kept two single-element float arrays plus two per-bar line.new()
+//      calls that were never deleted, so the line budget filled up and older
+//      lines silently dropped off the chart. One persistent line each now.
+// ═══════════════════════════════════════════════════════════════════════════════
+isReverse = 0
+if close > wma200 and close - pointReverse > wma200
+    isReverse := 1
+else if close < wma200 and close + pointReverse < wma200
+    isReverse := 2
+
+var float bottomAnchor = na
+var float topAnchor    = na
+var int   count_bottom = 0
+var int   count_top    = 0
+var line  bottomLine   = na
+var line  topLine      = na
+
+if canAct
+    bool bottomOn = isReverse == 2 and -1 * pointReverse >= close - wma200
+    bool topOn    = isReverse == 1 and pointReverse <= close - wma200
+
+    bottomAnchor := bottomOn ? (na(bottomAnchor) ? close : bottomAnchor) : na
+    topAnchor    := topOn    ? (na(topAnchor)    ? close : topAnchor)    : na
+
+    count_bottom := na(bottomAnchor) ? 0 : count_bottom + 1
+    count_top    := na(topAnchor)    ? 0 : count_top    + 1
+
+    if na(bottomAnchor)
+        if not na(bottomLine)
+            line.delete(bottomLine)
+            bottomLine := na
+    else
+        if na(bottomLine)
+            bottomLine := line.new(bar_index - 30, bottomAnchor, bar_index, bottomAnchor, width = 1)
+        else
+            line.set_xy1(bottomLine, bar_index - 30, bottomAnchor)
+            line.set_xy2(bottomLine, bar_index, bottomAnchor)
+
+    if na(topAnchor)
+        if not na(topLine)
+            line.delete(topLine)
+            topLine := na
+    else
+        if na(topLine)
+            topLine := line.new(bar_index - 30, topAnchor, bar_index, topAnchor, width = 1, color = color.yellow)
+        else
+            line.set_xy1(topLine, bar_index - 30, topAnchor)
+            line.set_xy2(topLine, bar_index, topAnchor)
+
+is_bottom_continue = count_bottom == 3
+is_top_continue    = count_top    == 3
+
+plotshape(is_bottom_continue, title = "Continue Bottom", style = shape.triangledown, location = location.abovebar, color = color.red,    size = size.tiny)
+plotshape(is_top_continue,    title = "Continue Top",    style = shape.triangleup,   location = location.belowbar, color = color.orange, size = size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  8.  DISTANCE TO WMA200
+//      v1 pushed one float per bar into an unbounded array purely to read back
+//      elements [size-2] and [size-3] — which are just point[1] and point[2].
+// ═══════════════════════════════════════════════════════════════════════════════
+point  = f_RoundUp(close - wma200, 0)
+point1 = point[1]
+point2 = point[2]
+
+txt_color = point - point1 >= emaStep ? color.green : point1 - point >= emaStep ? color.red : color.yellow
+
+// Anchor for the optional per-bar labels: a chart-derived offset, not the
+// lookahead_on 6-hour low that v1 used.
+labelAnchor = low - ta.atr(14) * 1.5
+
+if showPointLabels and canAct and not na(point)
+    label.new(bar_index, labelAnchor, text = str.tostring(point), textcolor = txt_color, color = color.new(color.black, 40), size = size.normal, style = bar_index % 2 == 0 ? label.style_label_down : label.style_label_up)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  9.  RSI
+// ═══════════════════════════════════════════════════════════════════════════════
+rsi  = ta.rsi(close, 9)
+cci2 = ta.cci(close, 14)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 10.  FRACTAL SUPPORT / RESISTANCE
+//      v1 ran EIGHT request.security() calls against the CHART'S OWN timeframe
+//      (f_tfSources(TF1, ...) with TF1 = timeframe.period). Requesting your own
+//      resolution adds nothing but a history/realtime discrepancy, because the
+//      forming bar is served differently by the security engine than by the
+//      chart. Computed inline now — same fractal, same 3-bar confirmation.
+// ═══════════════════════════════════════════════════════════════════════════════
+volMA = ta.wma(volume, 6)
+
+fracUp   = high[3] > high[4] and high[4] > high[5] and high[2] < high[3] and high[1] < high[2] and volume[3] > volMA[3]
+fracDown = low[3]  < low[4]  and low[4]  < low[5]  and low[2]  > low[3]  and low[1]  > low[2]  and volume[3] > volMA[3]
+
+var float resistanceZone = na
+var float supportZone    = na
+
+if fracUp
+    resistanceZone := close[3] >= open[3] ? close[3] : open[3]
+if fracDown
+    supportZone    := close[3] >= open[3] ? open[3]  : close[3]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 11.  BIG DROP / BOTTOM SUPPORT / MACD EXHAUSTION
+// ═══════════════════════════════════════════════════════════════════════════════
+bigdrop = rsi + 8 < rsi[1] and close > wma48
+plotshape(bigdrop, title = "Big Drop", style = shape.square, location = location.abovebar, color = color.white, size = size.tiny)
+
+// v1 compared against a support zone seeded to 0.0, so `close > supportZone`
+// was trivially true until the first down fractal printed and BOTTOMSUPPORT
+// fired on noise during the warm-up. Guarded with a na test now.
+bottomsupport = not na(supportZone) and close > supportZone and close > close[1] and rsi > rsi[1] + 10
+plotshape(bottomsupport, title = "Big Bottom", style = shape.xcross, location = location.belowbar, color = color.yellow, size = size.tiny)
+
+macd = ta.ema(close, 12) - ta.ema(close, 26)
+
+// Evaluated on EVERY bar, never inside the gate: ta.crossover / ta.crossunder
+// carry internal series state, and a conditional block would leave gaps in it.
+// Only the latch that consumes them is gated.
+macdCrossOver  = ta.crossover(macd, -40)
+macdCrossUnder = ta.crossunder(macd, 55)
+
+var bool is_macd_crossover  = false
+var bool is_macd_crossunder = false
+if canAct
+    if macdCrossOver
+        is_macd_crossover  := true
+        is_macd_crossunder := false
+    if macdCrossUnder
+        is_macd_crossover  := false
+        is_macd_crossunder := true
+
+highest48 = ta.highest(high, 48)
+lowest48  = ta.lowest(low, 48)
+pct_low   = f_RoundUp((close - highest48) / highest48 * 100, 2)
+pct_high  = f_RoundUp((close - lowest48)  / lowest48  * 100, 2)
+
+var bool is_lowest  = false
+var bool is_highest = false
+if canAct
+    if pct_low <= pctLow and close < wma200
+        if f_RoundUp((close - wma200) / wma200 * 100, 2) <= pctBottom and is_macd_crossover
+            is_lowest  := true
+            is_highest := false
+    if close > wma200
+        is_lowest := false
+    if pct_high >= pctHigh and close > wma200
+        if f_RoundUp((close - wma200) / wma200 * 100, 2) >= pctTop and is_macd_crossunder
+            is_highest := true
+            is_lowest  := false
+
+is_bottom = is_lowest  and bottomsupport
+is_top    = is_highest and bigdrop
+
+plotshape(is_bottom, title = "Bottom", style = shape.diamond, location = location.belowbar, color = color.yellow, size = size.tiny)
+plotshape(is_top,    title = "TOP",    style = shape.diamond, location = location.abovebar, color = color.white,  size = size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 12.  IN / OUT STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+var bool isIn  = false
+var bool isOut = false
+
+if canAct
+    bool inTrigger  = point - point1 >= emaStep or point - point2 >= emaStep or (point1 < 0 and point > 0)
+    bool outTrigger = point1 - point >= emaStep or point2 - point >= emaStep
+
+    if inTrigger
+        if showInOutLabels
+            label.new(bar_index, labelAnchor, text = isIn ? "--->" : "IN", textcolor = color.green, color = color.new(color.black, 40), size = size.normal, style = label.style_none)
+        isIn  := true
+        isOut := false
+    else if outTrigger
+        if showInOutLabels
+            label.new(bar_index, labelAnchor, text = isOut ? "--->" : "OUT", textcolor = color.red, color = color.new(color.black, 40), size = size.normal, style = label.style_none)
+        isOut := true
+        isIn  := false
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 13.  IN-OUT TRAILING LINE
+// ═══════════════════════════════════════════════════════════════════════════════
+f_inOutTrail(float factor, simple int pd, bool useUp) =>
+    up = hl2 - factor * ta.atr(pd)
+    dn = hl2 + factor * ta.atr(pd)
+    float trendUpLine = na
+    float trendDnLine = na
+    trendUpLine := cci2[1] > 0 ? math.max(up, nz(trendUpLine[1], up)) : up
+    trendDnLine := cci2[1] < 0 ? math.min(dn, nz(trendDnLine[1], dn)) : dn
+    useUp ? trendUpLine : trendDnLine
+
+st_tsl = f_inOutTrail(1, 1, isIn)
+plot(showInOutLine ? st_tsl : na, title = "In - Out", color = close >= st_tsl ? color.green : color.red, linewidth = 4)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 14.  ENGINE FLAGS
+// ═══════════════════════════════════════════════════════════════════════════════
+EMA_CHANGE_CALL = point - point1 >= emaStep
+EMA_CHANGE_PUT  = point - point1 <= -emaStep
+AWAY_EMA200     = point
+BIGDROP         = bigdrop
+BOTTOMSUPPORT   = bottomsupport
+
+var bool call_30_70 = false
+var bool put_30_70  = false
+if canAct
+    if AWAY_EMA200 <= -30 and AWAY_EMA200 >= -70
+        call_30_70 := true
+    if AWAY_EMA200 >= 30 and AWAY_EMA200 <= 70
+        put_30_70 := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 15.  CALL / PUT ENGINE
+//      Identical entry, exit and stop rules to v1. The differences:
+//        · the whole block only runs on a closed bar (canAct),
+//        · call_price / put_price are reset on EVERY exit, not just some of
+//          them. In v1 `Exit CALL` cleared logic_call but left call_price
+//          pointing at the old fill, so the next entry inherited a stale price
+//          and its 10-point stop was measured from the wrong level.
+// ═══════════════════════════════════════════════════════════════════════════════
+var string logic_call = "N/A"
+var string logic_put  = "N/A"
+string logic_exit_call = "N/A"
+string logic_exit_put  = "N/A"
+
+var float call_price = 0.0
+var float put_price  = 0.0
+
+bool is_call_logic1 = false
+bool is_call_logic2 = false
+bool is_call_logic3 = false
+bool is_call_logic4 = false
+bool is_exit_call      = false
+bool is_stop_loss_call = false
+
+bool is_put_logic1 = false
+bool is_put_logic2 = false
+bool is_put_logic3 = false
+bool is_put_logic4 = false
+bool is_put_logic5 = false
+bool is_exit_put      = false
+bool is_stop_loss_put = false
+
+f_callLabel(string txt) =>
+    label.new(bar_index, low, text = txt, textcolor = color.green, color = color.new(color.black, 40), size = size.normal, style = label.style_label_up)
+
+f_putLabel(string txt) =>
+    label.new(bar_index, high, text = txt, textcolor = color.red, color = color.new(color.black, 40), size = size.normal, style = label.style_label_down)
+
+if canAct
+    // ---- CALL entries -------------------------------------------------------
+    if not BIGDROP
+        if EMA_CHANGE_CALL and BOTTOMSUPPORT
+            logic_call     := "CALL case1"
+            is_call_logic1 := true
+            if showSignalLabels
+                f_callLabel(logic_call)
+            if call_price == 0.0
+                call_price := close
+
+        if AWAY_EMA200 <= -17 and AWAY_EMA200 >= -29 and EMA_CHANGE_CALL
+            logic_call     := "CALL case2"
+            is_call_logic2 := true
+            if showSignalLabels
+                f_callLabel(logic_call)
+            if call_price == 0.0
+                call_price := close
+
+        if call_30_70 and EMA_CHANGE_CALL
+            logic_call     := "CALL case3"
+            is_call_logic3 := true
+            if showSignalLabels
+                f_callLabel(logic_call)
+            call_30_70     := false
+            if call_price == 0.0
+                call_price := close
+
+        if point1 < 0 and point > 0 and EMA_CHANGE_CALL
+            logic_call     := "CALL case4"
+            is_call_logic4 := true
+            if showSignalLabels
+                f_callLabel(logic_call)
+            if call_price == 0.0
+                call_price := close
+
+    // ---- CALL exits ---------------------------------------------------------
+    if logic_call != "N/A" and ((logic_call != "CALL case3" and BIGDROP) or (point1 != 0.0 and point - point1 <= -emaStep) or (point2 != 0.0 and point - point2 <= -emaStep))
+        logic_exit_call := "Exit CALL"
+        logic_call      := "N/A"
+        is_exit_call    := true
+        call_price      := 0.0
+        if showSignalLabels
+            label.new(bar_index, high + 0.002 * high, text = logic_exit_call, textcolor = color.green, color = color.new(color.black, 40), size = size.normal, style = label.style_label_down)
+
+    if logic_call != "N/A" and call_price != 0.0 and close <= call_price - stopPts
+        logic_exit_call   := "Stop Loss CALL"
+        logic_call        := "N/A"
+        is_stop_loss_call := true
+        call_price        := 0.0
+        if showSignalLabels
+            label.new(bar_index, high + 0.002 * high, text = logic_exit_call, textcolor = color.green, color = color.new(color.black, 40), size = size.normal, style = label.style_label_down)
+
+    // ---- PUT entries --------------------------------------------------------
+    if not BOTTOMSUPPORT
+        if is_exit_call
+            logic_put     := "PUT case5"
+            is_put_logic5 := true
+            if showSignalLabels
+                f_putLabel(logic_put)
+            if put_price == 0.0
+                put_price := close
+
+        if logic_put != "PUT case5"
+            if EMA_CHANGE_PUT and BIGDROP
+                logic_put     := "PUT case1"
+                is_put_logic1 := true
+                if showSignalLabels
+                    f_putLabel(logic_put)
+                if put_price == 0.0
+                    put_price := close
+
+            if AWAY_EMA200 >= 17 and AWAY_EMA200 <= 29 and EMA_CHANGE_PUT
+                logic_put     := "PUT case2"
+                is_put_logic2 := true
+                if showSignalLabels
+                    f_putLabel(logic_put)
+                if put_price == 0.0
+                    put_price := close
+
+            if put_30_70 and EMA_CHANGE_PUT
+                logic_put     := "PUT case3"
+                is_put_logic3 := true
+                if showSignalLabels
+                    f_putLabel(logic_put)
+                put_30_70     := false
+                if put_price == 0.0
+                    put_price := close
+
+            if point1 > 0 and point < 0 and EMA_CHANGE_PUT
+                logic_put     := "PUT case4"
+                is_put_logic4 := true
+                if showSignalLabels
+                    f_putLabel(logic_put)
+                if put_price == 0.0
+                    put_price := close
+
+    // ---- PUT exits ----------------------------------------------------------
+    if logic_put != "N/A" and ((logic_put != "PUT case3" and BOTTOMSUPPORT) or (point1 != 0.0 and point - point1 >= emaStep) or (point2 != 0.0 and point - point2 >= emaStep))
+        logic_exit_put := "Exit PUT"
+        logic_put      := "N/A"
+        is_exit_put    := true
+        put_price      := 0.0
+        if showSignalLabels
+            label.new(bar_index, low - 0.002 * low, text = logic_exit_put, textcolor = color.red, color = color.new(color.black, 40), size = size.normal, style = label.style_label_up)
+
+    if logic_put != "N/A" and put_price != 0.0 and close >= put_price + stopPts
+        logic_exit_put   := "Stop loss PUT"
+        logic_put        := "N/A"
+        is_stop_loss_put := true
+        put_price        := 0.0
+        if showSignalLabels
+            label.new(bar_index, low - 0.002 * low, text = logic_exit_put, textcolor = color.red, color = color.new(color.black, 40), size = size.normal, style = label.style_label_up)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 16.  DAY RANGE + ETH / RTH ANCHORS
+//      v1 read the day high / low with request.security("D", high|low,
+//      lookahead_on). On history that hands back the COMPLETED day's extremes
+//      from the first bar of the session — the panel and the green rails knew
+//      the day's high hours before it printed. Derived from the chart's own
+//      bars now, so "Day High" means "day high so far", on history and live
+//      alike. time("D") follows the CME session, so the values still match the
+//      daily candle exactly.
+// ═══════════════════════════════════════════════════════════════════════════════
+newDay = ta.change(time("D")) != 0
+
+var float dayHigh = na
+var float dayLow  = na
+if newDay or na(dayHigh)
+    dayHigh := high
+    dayLow  := low
+else
+    dayHigh := math.max(dayHigh, high)
+    dayLow  := math.min(dayLow, low)
+
+mid_day = f_RoundUp((dayLow + dayHigh) / 2, 0)
+
+// Globex / RTH windows straight off the bar clock — no timenow, no fixed
+// GMT-7 offset, so the anchors stay correct across the DST changeover.
+inETH = h >= ethHour or h < rthHour or (h == rthHour and m <= rthMin)
+inRTH = not inETH
+
+var int   eth_idx  = na
+var int   rth_idx  = na
+var float pre_high = na
+
+if inETH and not inETH[1]
+    eth_idx  := bar_index
+    pre_high := high
+else if inETH
+    pre_high := math.max(nz(pre_high, high), high)
+
+if inRTH and not inRTH[1]
+    rth_idx := bar_index
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 17.  MACD PANEL STATE
+//      v1: `hist>=0 ? (hist[1]<hist ? 'UP':'DOWN') : (hist[1]<hist ? 'UP':'DOWN')`
+//      — both branches were identical, so the hist>=0 test did nothing. And the
+//      cell colour was keyed off timenow%2, which made it flicker between
+//      orange and yellow on every tick with no meaning attached.
+// ═══════════════════════════════════════════════════════════════════════════════
+fs_macd   = ta.ema(close, 12) - ta.ema(close, 26)
+fs_signal = ta.ema(fs_macd, 9)
+hist      = fs_macd - fs_signal
+
+macd_status = hist > hist[1] ? "MACD UP" : hist < hist[1] ? "MACD DOWN" : "MACD FLAT"
+macd_color  = hist > hist[1] ? color.new(color.lime, 40) : hist < hist[1] ? color.new(color.orange, 40) : color.new(color.gray, 40)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 18.  LEVEL LINES + PANEL  (last bar only — nothing else is ever visible)
+// ═══════════════════════════════════════════════════════════════════════════════
+var line  lEth     = na
+var line  lRth     = na
+var line  lLow     = na
+var line  lHigh    = na
+var line  lMid     = na
+var line  lPreHigh = na
+var label labEth   = na
+var label labRth   = na
+var table panel    = table.new(position.bottom_right, 2, 20)
+
+if barstate.islast and showLevels
+    int xEth = nz(eth_idx, bar_index)
+    int xRth = nz(rth_idx, bar_index)
+
+    if na(lEth)
+        lEth     := line.new(xEth, dayLow, xEth, dayHigh, color = color.yellow, width = 1, style = line.style_dotted)
+        lRth     := line.new(xRth, dayLow, xRth, dayHigh, color = color.yellow, width = 1, style = line.style_dotted)
+        lLow     := line.new(xEth, dayLow, bar_index, dayLow,  color = color.green, width = 1)
+        lHigh    := line.new(xEth, dayHigh, bar_index, dayHigh, color = color.green, width = 1)
+        lMid     := line.new(xEth, mid_day, bar_index, mid_day, color = color.gray, width = 1)
+        lPreHigh := line.new(xEth, nz(pre_high, dayHigh), bar_index, nz(pre_high, dayHigh), color = color.gray, width = 1, style = line.style_dashed)
+        labEth   := label.new(xEth + 10, dayLow, text = "ETH", textcolor = color.white, color = color.new(color.black, 40), size = size.normal, style = label.style_square)
+        labRth   := label.new(xRth + 15, dayLow, text = "RTH", textcolor = color.white, color = color.new(color.black, 40), size = size.normal, style = label.style_square)
+    else
+        line.set_xy1(lEth, xEth, dayLow)
+        line.set_xy2(lEth, xEth, dayHigh)
+        line.set_xy1(lRth, xRth, dayLow)
+        line.set_xy2(lRth, xRth, dayHigh)
+        line.set_xy1(lLow,  xEth, dayLow)
+        line.set_xy2(lLow,  bar_index, dayLow)
+        line.set_xy1(lHigh, xEth, dayHigh)
+        line.set_xy2(lHigh, bar_index, dayHigh)
+        line.set_xy1(lMid,  xEth, mid_day)
+        line.set_xy2(lMid, bar_index, mid_day)
+        line.set_xy1(lPreHigh, xEth, nz(pre_high, dayHigh))
+        line.set_xy2(lPreHigh, bar_index, nz(pre_high, dayHigh))
+        label.set_xy(labEth, xEth + 10, dayLow)
+        label.set_xy(labRth, xRth + 15, dayLow)
+
+f_row(int r, string k, string v, color bg) =>
+    table.cell(panel, 0, r, k, bgcolor = bg, text_color = color.black, width = 18, text_halign = text.align_left)
+    table.cell(panel, 1, r, v, bgcolor = bg, text_color = color.black, width = 16, text_halign = text.align_left)
+    true
+
+if barstate.islast
+    color bg = color.yellow
+
+    f_row(1, "Day Low",  str.format("${0}", dayLow),  bg)
+    f_row(2, "Day High", str.format("${0}", dayHigh), bg)
+    f_row(3, "Mid",      str.format("${0}", mid_day), bg)
+    f_row(4, "Points",   str.tostring(dayHigh - dayLow), bg)
+    f_row(5, "TREND",    txtMarkTrend == "" ? "NO TREND" : txtMarkTrend + "  |  " + txtOrder, bg)
+    f_row(6, "MACD TREND", macd_status + " - " + (is_big_call ? "BIG CALL" : is_big_put ? "BIG PUT" : "N/A"), macd_color)
+
+    if low < wma200
+        f_row(7, "EMA200%", str.format("{0}%   {1}", pct_low_wma200, txtBottom), bg)
+        f_row(8, "PREDICT BOTTOM PRICE", str.tostring(f_RoundUp(wma200 + pctBottom / 100 * wma200, 2)), bg)
+    else if high > wma200
+        f_row(7, "EMA200%", str.format("{0}%   {1}", pct_high_wma200, txtTop), bg)
+        f_row(8, "PREDICT TOP PRICE", str.tostring(f_RoundUp(wma200 + pctTop / 100 * wma200, 2)), bg)
+
+    string txtAway = isReverse == 1 ? str.format("PUT at {0}", close + 15) : isReverse == 2 ? str.format("CALL at {0}", close - 15) : ""
+    f_row(9,  "Price Away EMA200", str.format("{0} {1}", point, txtAway), bg)
+    f_row(10, "Support",           na(supportZone) ? "N/A" : str.tostring(supportZone), bg)
+    f_row(11, "Resistance",        na(resistanceZone) ? "N/A" : str.tostring(resistanceZone), bg)
+    f_row(12, "EMA_CHANGE_CALL",   str.tostring(EMA_CHANGE_CALL), bg)
+    f_row(13, "BIGDROP",           str.tostring(BIGDROP), bg)
+    f_row(14, "BOTTOMSUPPORT",     str.tostring(BOTTOMSUPPORT), bg)
+    f_row(15, "Point - Point1",    str.tostring(point - point1), bg)
+    f_row(16, "Logic CALL",        logic_call, bg)
+    f_row(17, "Logic PUT",         logic_put, bg)
+    f_row(18, "Bar state",         confirmOnly ? (barstate.isrealtime ? "LIVE — waiting for close" : "closed") : "tick mode (repaints)", confirmOnly ? bg : color.new(color.red, 40))
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 19.  ALERTS
+//      v1 kept fourteen int arrays whose only job was to remember one timestamp
+//      each, then compared `time == last element` to decide whether to fire.
+//      Same one-shot-per-trade-cycle behaviour, expressed as latched booleans.
+// ═══════════════════════════════════════════════════════════════════════════════
+var bool sentCall1 = false
+var bool sentCall2 = false
+var bool sentCall3 = false
+var bool sentCall4 = false
+var bool sentPut1  = false
+var bool sentPut2  = false
+var bool sentPut3  = false
+var bool sentPut4  = false
+var bool sentPut5  = false
+var bool sentExitCall = false
+var bool sentExitPut  = false
+var bool sentSlCall   = false
+var bool sentSlPut    = false
+
+bool alertCall1 = false
+bool alertCall2 = false
+bool alertCall3 = false
+bool alertCall4 = false
+bool alertPut1  = false
+bool alertPut2  = false
+bool alertPut3  = false
+bool alertPut4  = false
+bool alertPut5  = false
+bool alertExitCall = false
+bool alertExitPut  = false
+bool alertSlCall   = false
+bool alertSlPut    = false
+
+if canAct
+    if is_call_logic1 or is_call_logic2 or is_call_logic3 or is_call_logic4
+        sentExitCall := false
+        sentSlCall   := false
+    if is_put_logic1 or is_put_logic2 or is_put_logic3 or is_put_logic4 or is_put_logic5
+        sentExitPut := false
+        sentSlPut   := false
+
+    if is_call_logic1 and not sentCall1
+        alertCall1 := true
+        sentCall1  := true
+    if is_call_logic2 and not sentCall2
+        alertCall2 := true
+        sentCall2  := true
+    if is_call_logic3 and not sentCall3
+        alertCall3 := true
+        sentCall3  := true
+    if is_call_logic4 and not sentCall4
+        alertCall4 := true
+        sentCall4  := true
+
+    if is_put_logic1 and not sentPut1
+        alertPut1 := true
+        sentPut1  := true
+    if is_put_logic2 and not sentPut2
+        alertPut2 := true
+        sentPut2  := true
+    if is_put_logic3 and not sentPut3
+        alertPut3 := true
+        sentPut3  := true
+    if is_put_logic4 and not sentPut4
+        alertPut4 := true
+        sentPut4  := true
+    if is_put_logic5 and not sentPut5
+        alertPut5 := true
+        sentPut5  := true
+
+    if is_exit_call
+        sentCall1 := false
+        sentCall2 := false
+        sentCall3 := false
+        sentCall4 := false
+        sentSlCall := false
+        if not sentExitCall
+            alertExitCall := true
+            sentExitCall  := true
+    if is_stop_loss_call
+        sentCall1 := false
+        sentCall2 := false
+        sentCall3 := false
+        sentCall4 := false
+        sentExitCall := false
+        if not sentSlCall
+            alertSlCall := true
+            sentSlCall  := true
+    if is_exit_put
+        sentPut1 := false
+        sentPut2 := false
+        sentPut3 := false
+        sentPut4 := false
+        sentPut5 := false
+        sentSlPut := false
+        if not sentExitPut
+            alertExitPut := true
+            sentExitPut  := true
+    if is_stop_loss_put
+        sentPut1 := false
+        sentPut2 := false
+        sentPut3 := false
+        sentPut4 := false
+        sentPut5 := false
+        sentExitPut := false
+        if not sentSlPut
+            alertSlPut := true
+            sentSlPut  := true
+
+alertcondition(alertCall1, title = "Logic1 CALL", message = "Logic1 CALL")
+alertcondition(alertCall2, title = "Logic2 CALL", message = "Logic2 CALL")
+alertcondition(alertCall3, title = "Logic3 CALL", message = "Logic3 CALL")
+alertcondition(alertCall4, title = "Logic4 CALL", message = "Logic4 CALL")
+
+alertcondition(alertPut1, title = "Logic1 PUT", message = "Logic1 PUT")
+alertcondition(alertPut2, title = "Logic2 PUT", message = "Logic2 PUT")
+alertcondition(alertPut3, title = "Logic3 PUT", message = "Logic3 PUT")
+alertcondition(alertPut4, title = "Logic4 PUT", message = "Logic4 PUT")
+alertcondition(alertPut5, title = "Logic5 PUT", message = "Logic5 PUT")
+
+alertcondition(alertExitCall, title = "EXIT CALL",    message = "Exit CALL")
+alertcondition(alertExitPut,  title = "EXIT PUT",     message = "Exit PUT")
+alertcondition(alertSlCall,   title = "Stoploss CALL", message = "Stoploss CALL")
+alertcondition(alertSlPut,    title = "Stoploss PUT",  message = "Stoploss PUT")
+
+alertcondition(is_big_call and not is_big_call[1], title = "BIG CALL", message = "BIG CALL — 13/48 and 48/200 both crossed up")
+alertcondition(is_big_put  and not is_big_put[1],  title = "BIG PUT",  message = "BIG PUT — 13/48 and 48/200 both crossed down")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CHANGELOG  v1 (Pine v5) → v2.1 (Pine v6)
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PINE v6 PORT
+//   0a. //@version=6.
+//   0b. v6 no longer auto-casts int / float to bool, so `if someInteger` is a
+//       compile error. v1 relied on this in four places — `if crossdown_bar_48_200
+//       and crossdown_bar_13_48` and the matching cross-up test used bar indices
+//       as truth values, with 0 meaning "not set". Those are `var int ... = na`
+//       with explicit `not na()` tests now, which also removes the ambiguity at
+//       bar_index 0 (a real cross on the very first bar was indistinguishable
+//       from "never crossed").
+//   0c. In v6 a `bool` can no longer hold na — na is coerced to false. The only
+//       place that changes behaviour here is the first bar, where `inETH[1]` is
+//       na: v5 skipped the branch, v6 takes it, so the ETH anchor is seeded on
+//       bar 0 instead of being left na. Harmless, and slightly more correct.
+//   0d. ta.crossover() / ta.crossunder() on the MACD were hoisted out of the
+//       `if canAct` block. Those functions carry internal series state, and
+//       TradingView does not guarantee it when the call sits in a conditional
+//       branch. They are evaluated on every bar; only the latch they feed is
+//       gated. Every other ta.*() call was already unconditional.
+//   0e. v6 short-circuits `and` / `or`. None of the compound conditions here
+//       have side effects in their operands, so nothing had to move.
+//
+//  REPAINT
+//   1.  request.security("D", high|low, lookahead_on) removed. Day high / low /
+//       mid now accumulate from the chart's own bars, keyed off time("D").
+//   2.  request.security("360", low, lookahead_on) removed. It was only a label
+//       y-coordinate; replaced with low - 1.5 * ATR(14).
+//   3.  Eight request.security() calls against the chart's OWN timeframe
+//       (f_tfSources / f_tfResInMinutes / the two fractal-zone calls) removed.
+//       The fractal support / resistance is computed inline from the same bars.
+//   4.  timenow eliminated everywhere: the ETH / RTH anchors, the pre_high
+//       reset and the MACD cell colour no longer depend on wall-clock time, so
+//       a historical bar evaluates the same today and tomorrow.
+//   5.  timestamp("GMT-7", ...) for the session anchors replaced with an IANA
+//       timezone input. GMT-7 is only correct from March to November.
+//       dayofmonth(timenow) - 1 also produced day 0 on the 1st of the month.
+//   6.  The whole CALL / PUT engine, the trend state machine, the MACD
+//       exhaustion latches and the IN / OUT state now run under `canAct`
+//       (barstate.isconfirmed). Nothing is drawn or alerted from a bar that has
+//       not closed.
+//
+//  DRAWING BUDGET
+//   7.  The per-bar distance label (one label.new on EVERY bar) is now optional
+//       and off by default. With 500 labels max it was evicting the CALL / PUT
+//       markers, so scrolling back changed what the chart showed.
+//   8.  The two anchor lines were re-created every bar and never deleted. One
+//       persistent line each, updated in place, deleted when the anchor clears.
+//   9.  Day / ETH / RTH lines and labels are built once and moved, and only on
+//       barstate.islast — nothing before the last bar was ever visible anyway.
+//  10.  BIG CALL / BIG PUT drew two labels each; one now, and at the price the
+//       cross actually happened at instead of the current WMA value.
+//
+//  LOGIC FIXES
+//  11.  txtOrder := 'SELL' was mis-indented, so any down-trend bar reported
+//       SELL even before trendDown reached 1.
+//  12.  Exit CALL / Stop loss PUT left call_price / put_price non-zero, so the
+//       next entry kept the previous fill and measured its stop from it.
+//  13.  bottomsupport compared close against a support zone seeded to 0.0,
+//       which is true for any price. Guarded with a na test.
+//  14.  macd_status had two identical ternary branches; the hist >= 0 test did
+//       nothing. Now UP / DOWN / FLAT off the histogram slope.
+//  15.  Timeframe presets were string compares against "5" / "15" / "180" / "D"
+//       only. On a 3m ES chart nothing matched, pctTop stayed at 5% (≈385 ES
+//       points) and TOP / BOTTOM could never fire. Driven off
+//       timeframe.in_seconds() now, and the NQ test uses syminfo.root so it
+//       works on ESZ2025 / MESH2026 as well as ES1!.
+//
+//  CLEANUP
+//  16.  Sixteen arrays (point_arr, top/bottom, in/out, fourteen alert-time
+//       arrays) replaced by history references and latched booleans. point_arr
+//       in particular grew by one float per bar forever.
+//  17.  Dead code removed: f_nDecimals / _n, rsiWMA, cci(10), signal,
+//       TF1_text / TF1_inH / chartOnLowerTF1 / barsinTF1, TF1_High_index /
+//       TF1_Low_index (a `var` of a series expression, evaluated once on bar 0),
+//       TF1_FractalUp / TF1_FractalDown, price_wmacrossup_arr / down_arr,
+//       the Trend variable inside the supertrend helper.
+//  18.  Stop distance (10) and the EMA200 step (5) are inputs now.
+//  19.  Two new alerts: BIG CALL and BIG PUT.
+//  20.  Panel gained a "Bar state" row so you can see at a glance whether the
+//       script is in confirmed mode or in tick mode (which repaints by design).
+// ═══════════════════════════════════════════════════════════════════════════════
