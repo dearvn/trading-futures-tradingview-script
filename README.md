@@ -1,3 +1,6 @@
+# SocSwift Chart — Real-Time Futures on the Chart
+![SocSwift ES chart with flow marks](https://github.com/dearvn/trading-futures-tradingview-script/raw/main/es-futures.png?raw=true "SocSwift ES 1m with 0DTE flow marks")
+
 # SocSwift Chart — Real-Time Options Flow on the Chart
 
 I now trade **SPX options** using the live chart at **[trade.socswift.com](https://trade.socswift.com/dashboard/chart-dom?symbol=SPX)** — it plots institutional options flow (sweeps/blocks) directly on the price chart in real time, so you can see WHERE big money is buying calls and puts while the candle is still forming.
